@@ -55,9 +55,8 @@
                 type="text"
                 id="institution_code"
                 name="institution_code"
-                placeholder="Código de la Institución"
+                placeholder="Código de institución (no aplica a SuperAdmin)"
                 value="{{ old('institution_code') }}"
-                required
                 class="w-full bg-transparent border-b border-slate-600 py-3 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-400 transition-colors"
             >
         </div>

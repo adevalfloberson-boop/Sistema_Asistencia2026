@@ -74,6 +74,10 @@ class BiometricDevice extends Model
 
     public function connectionStatus(): string
     {
+        if (! $this->is_active && $this->school_id === null) {
+            return 'pending_assignment';
+        }
+
         if (! $this->is_active) {
             return 'inactive';
         }

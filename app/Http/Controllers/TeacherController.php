@@ -13,29 +13,27 @@ class TeacherController extends Controller
     {
         $validated = $this->validated($request);
         $teacher = User::query()->create($this->teacherAttributes($validated));
-        $teacher->courses()->sync($validated['course_ids']);
+        $teacher->courses()->sync($validated['course_ids'] ?? []);
 
-        return to_route('dashboard.admin')->withFragment('teachers')
+        return to_route('dashboard.admin.page', 'teachers')
             ->with('success', 'Docente creado y cursos asignados.');
     }
 
     public function update(Request $request, User $teacher): RedirectResponse
     {
-        abort_unless($teacher->role === 'teacher', 404);
         $validated = $this->validated($request, $teacher);
         $teacher->update($this->teacherAttributes($validated, $teacher));
-        $teacher->courses()->sync($validated['course_ids']);
+        $teacher->courses()->sync($validated['course_ids'] ?? []);
 
-        return to_route('dashboard.admin')->withFragment('teachers')
+        return to_route('dashboard.admin.page', 'teachers')
             ->with('success', 'Docente y asignaciones actualizados.');
     }
 
     public function destroy(User $teacher): RedirectResponse
     {
-        abort_unless($teacher->role === 'teacher', 404);
         $teacher->update(['is_active' => false]);
 
-        return to_route('dashboard.admin')->withFragment('teachers')
+        return to_route('dashboard.admin.page', 'teachers')
             ->with('success', 'Docente desactivado sin borrar sus verificaciones.');
     }
 
@@ -55,7 +53,8 @@ class TeacherController extends Controller
             ],
             'email' => ['required', 'email', 'max:255', Rule::unique('users')->ignore($teacher)],
             'password' => [$teacher === null ? 'required' : 'nullable', 'string', 'min:10', 'confirmed'],
-            'course_ids' => ['required', 'array', 'min:1'],
+            'role' => ['nullable', 'in:admin,teacher,viewer'],
+            'course_ids' => [Rule::requiredIf($request->input('role', 'teacher') === 'teacher'), 'nullable', 'array'],
             'course_ids.*' => [
                 'integer',
                 Rule::exists('courses', 'id')->where(
@@ -76,7 +75,7 @@ class TeacherController extends Controller
             'name' => $validated['name'],
             'username' => $validated['username'],
             'email' => $validated['email'],
-            'role' => 'teacher',
+            'role' => $validated['role'] ?? 'teacher',
             'is_active' => true,
         ];
 

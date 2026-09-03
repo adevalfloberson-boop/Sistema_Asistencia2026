@@ -42,7 +42,7 @@ class DeviceController extends Controller
         $this->queueCommand($device, 'inspect');
 
         return redirect()
-            ->route('dashboard.admin', ['section' => 'devices'])
+            ->route('dashboard.admin.page', 'devices')
             ->with('success', $device->connection_mode === 'adms'
                 ? "Lector {$device->name} añadido. Configura este servidor ADMS en el equipo."
                 : "Lector {$device->name} añadido. El agente intentará conectarlo automáticamente.");
@@ -78,7 +78,7 @@ class DeviceController extends Controller
         $device->update($validated);
 
         return redirect()
-            ->route('dashboard.admin', ['section' => 'devices'])
+            ->route('dashboard.admin.page', 'devices')
             ->with('success', "Configuración de {$device->name} actualizada.");
     }
 
@@ -142,7 +142,7 @@ class DeviceController extends Controller
         );
 
         return redirect()
-            ->route('dashboard.admin', ['section' => 'enrollment'])
+            ->route('dashboard.admin.page', 'enrollment')
             ->with('success', "Solicitud enviada. {$student->nombre} debe colocar el dedo en {$device->name}.");
     }
 
@@ -176,6 +176,53 @@ class DeviceController extends Controller
             'result' => $command->result,
             'error' => $command->error,
             'completed_at' => $command->completed_at?->toIso8601String(),
+        ]);
+    }
+
+    public function statuses(): JsonResponse
+    {
+        $this->ensureAdministrator();
+
+        $devices = BiometricDevice::query()
+            ->select(['id', 'name', 'last_seen_at', 'is_active', 'user_count', 'fingerprint_count'])
+            ->when(session('user.role') === 'admin', fn ($query) => $query->where('school_id', session('user.school_id')))
+            ->orderBy('name')
+            ->get();
+
+        $statusMeta = [
+            'online' => ['En línea', 'bg-emerald-100 text-emerald-700 dark:bg-emerald-400/15 dark:text-emerald-300', 'bg-emerald-500'],
+            'delayed' => ['Con retraso', 'bg-amber-100 text-amber-700 dark:bg-amber-400/15 dark:text-amber-300', 'bg-amber-500'],
+            'offline' => ['Sin comunicación', 'bg-rose-100 text-rose-700 dark:bg-rose-400/15 dark:text-rose-300', 'bg-rose-500'],
+            'never_connected' => ['Sin conectar', 'bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300', 'bg-slate-400'],
+            'pending_assignment' => ['Pendiente de asignar', 'bg-sky-100 text-sky-700 dark:bg-sky-400/15 dark:text-sky-300', 'bg-sky-500'],
+            'inactive' => ['Inactivo', 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400', 'bg-slate-400'],
+        ];
+
+        $statusCounts = $devices->map(fn (BiometricDevice $device): string => $device->connectionStatus())->countBy();
+
+        return response()->json([
+            'summary' => [
+                'total' => $devices->count(),
+                'online' => $statusCounts->get('online', 0),
+                'alerts' => $statusCounts->get('delayed', 0)
+                    + $statusCounts->get('offline', 0)
+                    + $statusCounts->get('never_connected', 0)
+                    + $statusCounts->get('pending_assignment', 0),
+            ],
+            'devices' => $devices->map(function (BiometricDevice $device) use ($statusMeta): array {
+                $status = $device->connectionStatus();
+
+                return [
+                    'id' => $device->id,
+                    'status' => $status,
+                    'label' => $statusMeta[$status][0],
+                    'badge_class' => $statusMeta[$status][1],
+                    'dot_class' => $statusMeta[$status][2],
+                    'last_seen_at' => $device->last_seen_at?->toIso8601String(),
+                    'user_count' => $device->user_count,
+                    'fingerprint_count' => $device->fingerprint_count,
+                ];
+            }),
         ]);
     }
 
@@ -213,6 +260,6 @@ class DeviceController extends Controller
 
     private function ensureAdministrator(): void
     {
-        abort_unless(session('user.role') === 'superadmin', 403);
+        abort_unless(in_array(session('user.role'), ['superadmin', 'admin'], true), 403);
     }
 }

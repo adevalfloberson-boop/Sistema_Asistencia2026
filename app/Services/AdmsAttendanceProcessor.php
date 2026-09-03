@@ -37,6 +37,15 @@ class AdmsAttendanceProcessor
             return $admsEvent;
         }
 
+        if (! $device->is_active || $device->school_id === null) {
+            $admsEvent->update([
+                'processing_status' => 'unmatched',
+                'error' => 'El lector está pendiente de asignación y activación.',
+            ]);
+
+            return $admsEvent->fresh();
+        }
+
         $student = Student::query()
             ->where('school_id', $device->school_id)
             ->where('id_lector', $event['user_id'])
@@ -59,6 +68,7 @@ class AdmsAttendanceProcessor
             'device_status' => $event['status_code'],
             'device_punch' => $event['verify_mode'],
             'reader_ip' => $device->ip_address,
+            'apply_cooldown' => true,
         ]);
 
         $admsEvent->update([

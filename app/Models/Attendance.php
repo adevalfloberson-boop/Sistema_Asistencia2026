@@ -24,6 +24,12 @@ class Attendance extends Model
         'device_punch',
         'is_ignored',
         'ignored_reason',
+        'is_late',
+        'is_early_departure',
+        'excuse_type',
+        'excuse_note',
+        'excused_by',
+        'excused_at',
         'fecha_hora',
         'received_at',
         'curso',
@@ -37,6 +43,9 @@ class Attendance extends Model
             'fecha_hora' => 'datetime',
             'received_at' => 'datetime',
             'is_ignored' => 'boolean',
+            'is_late' => 'boolean',
+            'is_early_departure' => 'boolean',
+            'excused_at' => 'datetime',
         ];
     }
 

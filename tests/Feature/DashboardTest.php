@@ -31,8 +31,7 @@ test('superadministrator dashboard is accessible', function () {
     ]])->get('/dashboard/admin')
         ->assertOk()
         ->assertSee('Portal escolar')
-        ->assertSee('Red global de lectores')
-        ->assertSee('Registrar estudiante');
+        ->assertSee('Red global de lectores');
 });
 
 test('superadministrator dashboard shows unmatched raw adms events', function () {
@@ -62,7 +61,7 @@ test('superadministrator dashboard shows unmatched raw adms events', function ()
         'username' => 'admin-adms',
         'role' => 'superadmin',
         'institution_code' => $school->code,
-    ]])->get('/dashboard/admin')
+    ]])->get('/dashboard/admin/attendance')
         ->assertOk()
         ->assertSee('Eventos ADMS sin filtrar')
         ->assertSee('Lector ADMS prueba')
@@ -186,7 +185,7 @@ test('superadministrator can register a student linked to a reader', function ()
         'apellido' => 'Estudiante',
         'numero_lista' => 1,
         'id_lector' => '1000',
-    ])->assertRedirect(route('dashboard.admin').'#students');
+    ])->assertRedirect(route('dashboard.admin.page', 'students'));
 
     $this->assertDatabaseHas('students', ['matricula' => 'MAT1000', 'id_lector' => '1000']);
     $this->assertDatabaseHas('students', ['course_id' => $course->id, 'curso' => 'Prueba A']);

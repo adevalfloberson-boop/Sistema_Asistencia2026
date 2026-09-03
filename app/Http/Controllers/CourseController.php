@@ -13,7 +13,7 @@ class CourseController extends Controller
     {
         Course::query()->create($this->validated($request));
 
-        return to_route('dashboard.admin')->withFragment('courses')
+        return to_route('dashboard.admin.page', 'courses')
             ->with('success', 'Curso creado correctamente.');
     }
 
@@ -27,7 +27,7 @@ class CourseController extends Controller
             'seccion' => $course->section,
         ]);
 
-        return to_route('dashboard.admin')->withFragment('courses')
+        return to_route('dashboard.admin.page', 'courses')
             ->with('success', 'Curso y alumnos asociados actualizados.');
     }
 
@@ -35,7 +35,7 @@ class CourseController extends Controller
     {
         $course->update(['is_active' => false]);
 
-        return to_route('dashboard.admin')->withFragment('courses')
+        return to_route('dashboard.admin.page', 'courses')
             ->with('success', 'Curso desactivado sin borrar estudiantes ni historial.');
     }
 

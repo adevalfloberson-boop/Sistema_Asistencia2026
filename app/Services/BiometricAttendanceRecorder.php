@@ -21,7 +21,8 @@ class BiometricAttendanceRecorder
      *     reader_name?: string|null,
      *     reader_school?: string|null,
      *     reader_mac?: string|null,
-     *     reader_ip?: string|null
+     *     reader_ip?: string|null,
+     *     apply_cooldown?: bool
      * }  $event
      * @return array{attendance: Attendance|null, created: bool, debounced: bool, ignored: bool, remaining_seconds: int}
      */
@@ -29,7 +30,7 @@ class BiometricAttendanceRecorder
     {
         return DB::transaction(function () use ($student, $device, $event): array {
             $eventKey = $event['event_key'] ?? null;
-            $recordedAt = isset($event['event_timestamp'])
+            $recordedAt = ($event['event_source'] ?? 'live') === 'history' && isset($event['event_timestamp'])
                 ? Carbon::parse($event['event_timestamp'])
                 : now();
 
@@ -70,7 +71,10 @@ class BiometricAttendanceRecorder
             $elapsedSeconds = $nearbyAttendance === null
                 ? null
                 : abs($nearbyAttendance->fecha_hora->diffInSeconds($recordedAt));
-            $isInsideCooldown = $elapsedSeconds !== null && $elapsedSeconds < $cooldownSeconds;
+            $applyCooldown = $event['apply_cooldown'] ?? true;
+            $isInsideCooldown = $applyCooldown
+                && $elapsedSeconds !== null
+                && $elapsedSeconds < $cooldownSeconds;
 
             if ($eventKey === null && $isInsideCooldown) {
                 return [
@@ -123,16 +127,44 @@ class BiometricAttendanceRecorder
             ->orderBy('fecha_hora')
             ->orderBy('id')
             ->get()
-            ->each(function (Attendance $attendance, int $index): void {
+            ->each(function (Attendance $attendance, int $index) use ($student): void {
                 $type = $index % 2 === 0 ? 'Entrada' : 'Salida';
+                $schedule = $student->school;
+                $isLate = $type === 'Entrada' && $this->isLate($attendance->fecha_hora, $schedule?->attendance_entry_time, $schedule?->attendance_late_grace_minutes);
+                $isEarlyDeparture = $type === 'Salida' && $this->isBeforeExitTime($attendance->fecha_hora, $schedule?->attendance_exit_time);
 
-                if ($attendance->tipo !== $type || $attendance->estado !== $type) {
+                if ($attendance->tipo !== $type || $attendance->estado !== $type || $attendance->is_late !== $isLate || $attendance->is_early_departure !== $isEarlyDeparture) {
                     $attendance->update([
                         'tipo' => $type,
                         'estado' => $type,
+                        'is_late' => $isLate,
+                        'is_early_departure' => $isEarlyDeparture,
                     ]);
                 }
             });
+    }
+
+    private function isLate(Carbon $recordedAt, mixed $entryTime, mixed $graceMinutes): bool
+    {
+        if ($entryTime === null) {
+            return false;
+        }
+
+        $limit = Carbon::parse($recordedAt->toDateString().' '.Carbon::parse($entryTime)->format('H:i:s'))
+            ->addMinutes((int) $graceMinutes);
+
+        return $recordedAt->greaterThan($limit);
+    }
+
+    private function isBeforeExitTime(Carbon $recordedAt, mixed $exitTime): bool
+    {
+        if ($exitTime === null) {
+            return false;
+        }
+
+        $limit = Carbon::parse($recordedAt->toDateString().' '.Carbon::parse($exitTime)->format('H:i:s'));
+
+        return $recordedAt->lessThan($limit);
     }
 
     private function nearbyAcceptedAttendance(Student $student, Carbon $recordedAt): ?Attendance

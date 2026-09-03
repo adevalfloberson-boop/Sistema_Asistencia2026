@@ -1,5 +1,6 @@
 <?php
 
+use App\Http\Middleware\EnsureSchoolAdministration;
 use App\Http\Middleware\EnsureSessionRole;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -22,6 +23,7 @@ return Application::configure(basePath: dirname(__DIR__))
 
         $middleware->alias([
             'role' => EnsureSessionRole::class,
+            'school-administration' => EnsureSchoolAdministration::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

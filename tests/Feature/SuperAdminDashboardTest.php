@@ -33,7 +33,7 @@ test('superadministrator sees readers from every school in one network console',
         'username' => $admin->username,
         'role' => 'superadmin',
         'institution_code' => $north->code,
-    ]])->get(route('dashboard.admin'))
+    ]])->get(route('dashboard.admin.page', 'devices'))
         ->assertOk()
         ->assertSee('Red global de lectores')
         ->assertSee('Escuela Norte')

@@ -17,7 +17,7 @@ class StudentController extends Controller
 
         Student::query()->create($this->studentAttributes($validated, $course));
 
-        return to_route('dashboard.admin')->withFragment('students')
+        return to_route('dashboard.admin.page', 'students')
             ->with('success', 'Estudiante registrado y vinculado al lector correctamente.');
     }
 
@@ -27,7 +27,7 @@ class StudentController extends Controller
         $course = Course::query()->findOrFail($validated['course_id']);
         $student->update($this->studentAttributes($validated, $course));
 
-        return to_route('dashboard.admin')->withFragment('students')
+        return to_route('dashboard.admin.page', 'students')
             ->with('success', 'Datos del estudiante actualizados.');
     }
 
@@ -35,7 +35,7 @@ class StudentController extends Controller
     {
         $student->update(['is_active' => false]);
 
-        return to_route('dashboard.admin')->withFragment('students')
+        return to_route('dashboard.admin.page', 'students')
             ->with('success', 'Estudiante desactivado sin borrar su historial.');
     }
 

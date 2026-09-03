@@ -19,29 +19,28 @@ class AuthController extends Controller
     public function login(Request $request): RedirectResponse
     {
         $validated = $request->validate([
-            'institution_code' => ['required', 'string', 'max:50'],
+            'institution_code' => ['nullable', 'string', 'max:50'],
             'username' => ['required', 'string', 'max:100'],
             'password' => ['required', 'string'],
         ]);
 
-        $school = School::query()
-            ->where('code', strtoupper($validated['institution_code']))
-            ->where('is_active', true)
-            ->first();
-
         $user = User::query()
             ->where('username', $validated['username'])
             ->where('is_active', true)
-            ->where(function ($query) use ($school): void {
-                $query->where('role', 'superadmin');
-
-                if ($school !== null) {
-                    $query->orWhere('school_id', $school->id);
-                }
-            })
             ->first();
 
-        if ($school === null || $user === null || ! Hash::check($validated['password'], $user->password)) {
+        $school = null;
+
+        if ($user?->role !== 'superadmin') {
+            $school = School::query()
+                ->where('code', strtoupper((string) ($validated['institution_code'] ?? '')))
+                ->where('is_active', true)
+                ->first();
+        }
+
+        if ($user === null
+            || ! Hash::check($validated['password'], $user->password)
+            || ($user->role !== 'superadmin' && ($school === null || $user->school_id !== $school->id))) {
             return back()
                 ->withErrors(['login' => 'Credenciales incorrectas o institución inválida.'])
                 ->withInput($request->only('institution_code', 'username'));
@@ -54,13 +53,15 @@ class AuthController extends Controller
             'username' => $user->username,
             'role' => $user->role,
             'school_id' => $user->school_id,
-            'institution_code' => $school->code,
+            'institution_code' => $school?->code,
         ]);
 
-        return redirect()->intended(match ($user->role) {
-            'superadmin' => route('dashboard.admin'),
-            'teacher' => route('dashboard.docente'),
-            default => route('login'),
+        return to_route(match ($user->role) {
+            'superadmin' => 'dashboard.superadmin',
+            'admin' => 'dashboard.admin',
+            'teacher' => 'dashboard.docente',
+            'viewer' => 'dashboard.viewer',
+            default => 'login',
         });
     }
 

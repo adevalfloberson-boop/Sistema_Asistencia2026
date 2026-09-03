@@ -39,7 +39,7 @@ test('administrator can add a biometric device using its name and mac address', 
         'port' => 4370,
     ]);
 
-    $response->assertRedirect(route('dashboard.admin', ['section' => 'devices']));
+    $response->assertRedirect(route('dashboard.admin.page', 'devices'));
     $this->assertDatabaseHas('biometric_devices', [
         'school_id' => $school->id,
         'name' => 'Entrada principal',
@@ -68,7 +68,7 @@ test('administrator can add an adms device using its serial number without local
         'port' => 4370,
     ]);
 
-    $response->assertRedirect(route('dashboard.admin', ['section' => 'devices']));
+    $response->assertRedirect(route('dashboard.admin.page', 'devices'));
     $this->assertDatabaseHas('biometric_devices', [
         'school_id' => $school->id,
         'serial_number' => 'M2F123456',
@@ -104,7 +104,7 @@ test('administrator can queue fingerprint enrollment without interrupting attend
         'finger_index' => 1,
     ]);
 
-    $response->assertRedirect(route('dashboard.admin', ['section' => 'enrollment']));
+    $response->assertRedirect(route('dashboard.admin.page', 'enrollment'));
     expect(DeviceCommand::query()->where('type', 'enroll')->where('status', 'pending')->exists())->toBeTrue();
     expect(BiometricEnrollment::query()->where([
         'student_id' => $student->id,
@@ -130,4 +130,26 @@ test('non administrator cannot change biometric devices', function () {
             'port' => 4370,
         ])
         ->assertForbidden();
+});
+
+test('administrator can read lightweight device connection statuses', function () {
+    $school = School::query()->create([
+        'code' => 'STATUS001',
+        'name' => 'Escuela de estado',
+    ]);
+    $device = BiometricDevice::query()->create([
+        'school_id' => $school->id,
+        'key' => 'estado-adms',
+        'name' => 'Lector ADMS',
+        'serial_number' => 'STATUS-ADMS-001',
+        'connection_mode' => 'adms',
+        'last_seen_at' => now(),
+    ]);
+
+    $this->withSession(administratorSession())
+        ->getJson(route('devices.statuses'))
+        ->assertOk()
+        ->assertJsonPath('summary.online', 1)
+        ->assertJsonPath('devices.0.id', $device->id)
+        ->assertJsonPath('devices.0.status', 'online');
 });

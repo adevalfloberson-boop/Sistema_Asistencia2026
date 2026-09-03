@@ -14,8 +14,14 @@ class School extends Model
         'address',
         'phone',
         'email',
+        'tax_id',
+        'logo_path',
+        'active_modules',
         'primary_color',
         'attendance_cooldown_minutes',
+        'attendance_entry_time',
+        'attendance_exit_time',
+        'attendance_late_grace_minutes',
         'is_active',
     ];
 
@@ -23,6 +29,10 @@ class School extends Model
     {
         return [
             'attendance_cooldown_minutes' => 'integer',
+            'attendance_entry_time' => 'datetime:H:i',
+            'attendance_exit_time' => 'datetime:H:i',
+            'attendance_late_grace_minutes' => 'integer',
+            'active_modules' => 'array',
             'is_active' => 'boolean',
         ];
     }

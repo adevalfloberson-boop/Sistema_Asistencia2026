@@ -37,8 +37,8 @@ class ImportLegacyStudents extends Command
             ->orderBy('matricula')
             ->get();
         $school = School::query()->firstOrCreate(
-            ['code' => config('attendance.default_school_code')],
-            ['name' => config('attendance.default_school_name')],
+            ['code' => 'INST001'],
+            ['name' => 'Centro Educativo INST001'],
         );
         $listNumbers = [];
         $imported = 0;
