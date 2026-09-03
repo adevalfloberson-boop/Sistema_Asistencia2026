@@ -13,35 +13,13 @@ $powerShellPath = (Get-Command powershell.exe -ErrorAction Stop).Source
 $bundledPhpCommand = Join-Path $projectPath 'runtime\php\php.exe'
 $bundledPhpIni = Join-Path $projectPath 'runtime\php\php.ini'
 $bundledPhpExtensions = Join-Path $projectPath 'runtime\php\ext'
-$virtualEnvironmentPath = Join-Path $projectPath 'runtime\python-venv'
-$virtualEnvironmentPython = Join-Path $virtualEnvironmentPath 'Scripts\python.exe'
-$requirementsPath = Join-Path $projectPath 'scripts\requirements-biometric.txt'
-$wheelhousePath = Join-Path $projectPath 'scripts\wheels'
 
 if (-not (Test-Path -LiteralPath $bundledPhpCommand)) {
     throw 'El paquete está incompleto: falta runtime\php\php.exe.'
 }
 
-if ($null -eq (Get-Command 'py' -ErrorAction SilentlyContinue)) {
-    throw 'No se encontró el iniciador de Python (py.exe) en PATH. Reinstale Python 3.14 activando Python Launcher.'
-}
-
-$systemPython = (& py -3.14 -c 'import sys; print(sys.executable)' 2>$null | Select-Object -Last 1)
-if ($LASTEXITCODE -ne 0) {
-    throw 'Este paquete requiere Python 3.14 de 64 bits.'
-}
-$systemPython = $systemPython.Trim()
-if (-not (Test-Path -LiteralPath $systemPython)) {
-    throw 'Python 3.14 está registrado, pero no se encontró su ejecutable. Repare la instalación de Python.'
-}
-
-& $systemPython -c 'import sys; raise SystemExit(0 if sys.maxsize > 2**32 else 1)'
-if ($LASTEXITCODE -ne 0) {
-    throw 'Este paquete requiere Python 3.14 de 64 bits; se detectó una instalación de 32 bits.'
-}
-
-if (-not $ValidationOnly -and $null -eq (Get-Command tailscale -ErrorAction SilentlyContinue)) {
-    throw 'No se encontró Tailscale en PATH. Instálelo e inicie sesión antes de registrar el nodo.'
+if ($EnableServe -and $null -eq (Get-Command tailscale -ErrorAction SilentlyContinue)) {
+    throw 'No se encontró Tailscale en PATH. Instálelo e inicie sesión antes de habilitar Tailscale Serve.'
 }
 
 if (-not (Test-Path -LiteralPath (Join-Path $projectPath '.env'))) {
@@ -56,37 +34,6 @@ if ($LASTEXITCODE -ne 0 -or $phpModules -notcontains 'pdo_pgsql' -or $phpModules
     throw 'El PHP portátil no pudo cargar pdo_pgsql y pgsql.'
 }
 
-if (Test-Path -LiteralPath $virtualEnvironmentPython) {
-    & $virtualEnvironmentPython -c 'import sys' 2>$null
-    if ($LASTEXITCODE -ne 0) {
-        Write-Host 'El entorno virtual existente pertenece a otra instalación. Reconstruyéndolo...'
-        Remove-Item -LiteralPath $virtualEnvironmentPath -Recurse -Force
-    }
-}
-
-if (-not (Test-Path -LiteralPath $virtualEnvironmentPython)) {
-    Write-Host 'Creando el entorno virtual de Python...'
-    & $systemPython -m venv $virtualEnvironmentPath
-    if ($LASTEXITCODE -ne 0) {
-        throw 'No se pudo crear el entorno virtual de Python.'
-    }
-}
-
-$pipArguments = @('-m', 'pip', 'install', '--disable-pip-version-check')
-if (Test-Path -LiteralPath $wheelhousePath) {
-    $pipArguments += @('--no-index', '--find-links', $wheelhousePath)
-}
-$pipArguments += @('-r', $requirementsPath)
-& $virtualEnvironmentPython @pipArguments
-if ($LASTEXITCODE -ne 0) {
-    throw 'No se pudieron instalar las dependencias biométricas en el entorno virtual.'
-}
-
-& $virtualEnvironmentPython -c 'import dotenv, requests, zk'
-if ($LASTEXITCODE -ne 0) {
-    throw 'El entorno virtual no puede importar dotenv, requests y zk.'
-}
-
 & $bundledPhpCommand -c $bundledPhpIni -d "extension_dir=$bundledPhpExtensions" artisan optimize:clear
 if ($LASTEXITCODE -ne 0) {
     throw 'Laravel no pudo limpiar su configuración.'
@@ -97,7 +44,7 @@ if ($LASTEXITCODE -ne 0) {
     throw 'Laravel no pudo conectarse con PostgreSQL en TrueNAS.'
 }
 
-Write-Host 'PHP, Python, Laravel y PostgreSQL: OK'
+Write-Host 'PHP, Laravel y PostgreSQL en TrueNAS: OK'
 
 if ($ValidationOnly) {
     Write-Host 'Validación terminada; no se registró ninguna tarea de Windows.'
@@ -122,9 +69,11 @@ if ($null -ne $existingListener) {
     Stop-Process -Id $existingListener.OwningProcess -Force
 }
 
-& tailscale status | Out-Null
-if ($LASTEXITCODE -ne 0) {
-    throw 'Tailscale no está conectado. Inicie sesión y vuelva a ejecutar el instalador.'
+if ($EnableServe) {
+    & tailscale status | Out-Null
+    if ($LASTEXITCODE -ne 0) {
+        throw 'Tailscale no está conectado. Inicie sesión y vuelva a ejecutar el instalador.'
+    }
 }
 
 $runnerArguments = "-NoProfile -ExecutionPolicy Bypass -File `"$runnerPath`" -Port $Port"

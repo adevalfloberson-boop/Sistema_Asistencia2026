@@ -3,6 +3,7 @@
 namespace App\Providers;
 
 use Illuminate\Foundation\DevCommands;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -20,8 +21,10 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        DevCommands::except('vite');
-        DevCommands::register('python -u scripts/biometrico.py', 'biometric')->green();
+        DB::prohibitDestructiveCommands(
+            ! app()->runningUnitTests()
+            && (app()->isProduction() || config('database.prohibit_destructive_commands')),
+        );
 
         if (PHP_OS_FAMILY === 'Windows' && ! extension_loaded('openssl')) {
             DevCommands::register(

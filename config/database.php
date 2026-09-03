@@ -19,6 +19,8 @@ return [
 
     'default' => env('DB_CONNECTION', 'sqlite'),
 
+    'prohibit_destructive_commands' => (bool) env('DB_PROHIBIT_DESTRUCTIVE_COMMANDS', false),
+
     /*
     |--------------------------------------------------------------------------
     | Database Connections
