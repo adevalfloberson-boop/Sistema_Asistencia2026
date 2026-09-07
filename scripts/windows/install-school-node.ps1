@@ -1,6 +1,6 @@
 param(
     [string] $TaskName = 'Portal Escolar - Nodo Biometrico',
-    [int] $Port = 590,
+    [int] $Port = 2080,
     [switch] $RunAtStartup,
     [switch] $EnableServe,
     [switch] $ValidationOnly
