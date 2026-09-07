@@ -3,7 +3,7 @@
 test('the application returns a successful response', function () {
     $response = $this->get('/');
 
-    $response->assertRedirect('/login');
+    $response->assertRedirectToRoute('login');
 });
 
 test('asset urls use https behind a trusted proxy', function () {
