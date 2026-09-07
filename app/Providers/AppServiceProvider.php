@@ -28,7 +28,10 @@ class AppServiceProvider extends ServiceProvider
 
         if (PHP_OS_FAMILY === 'Windows' && ! extension_loaded('openssl')) {
             DevCommands::register(
-                'php -d extension=openssl -S 127.0.0.1:8000 -t public scripts/server.php',
+                sprintf(
+                    'php -d extension=openssl -S 127.0.0.1:%d -t public scripts/server.php',
+                    (int) env('SERVER_PORT', 590),
+                ),
                 'server',
             )->blue();
             DevCommands::register(
