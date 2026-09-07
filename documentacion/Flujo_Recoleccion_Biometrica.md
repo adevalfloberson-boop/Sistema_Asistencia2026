@@ -22,7 +22,7 @@ Hay dos formas de entrada:
 - **ADMS:** el lector inicia la comunicación con Laravel y envía sus eventos a `/iclock/cdata`.
 - **SDK/agente:** un proceso local consulta los lectores y envía los eventos procesados a `/api/asistencia`.
 
-El puerto `590` es el puerto objetivo del servicio web/nodo que expone Laravel. No debe confundirse con el puerto de comunicación propio del lector SDK, que se guarda en `biometric_devices.port` y por defecto sigue siendo `4370`.
+El puerto `2080` es el puerto objetivo del servicio web/nodo que expone Laravel. No debe confundirse con el puerto de comunicación propio del lector SDK, que se guarda en `biometric_devices.port` y por defecto sigue siendo `4370`.
 
 ## Secuencia de una marcación ADMS
 
@@ -126,9 +126,9 @@ flowchart TD
 
 Las órdenes de inspección y sincronización de hora pueden viajar por ADMS. Las órdenes de enrolamiento y verificación requieren el agente SDK según el estado actual del código.
 
-## Puerto 590
+## Puerto 2080
 
-La migración al puerto `590` afecta al servicio web/nodo que debe ser alcanzable por los lectores o por el proxy inverso. El cambio debe coordinarse en cuatro puntos:
+La migración al puerto `2080` afecta al servicio web/nodo que debe ser alcanzable por los lectores o por el proxy inverso. El cambio debe coordinarse en cuatro puntos:
 
 1. Proceso PHP/Laravel que escucha localmente.
 2. `APP_URL` y URL configurada en los lectores ADMS.
@@ -146,7 +146,7 @@ El cambio no altera las rutas `/iclock/*` ni `/api/*`; solo modifica la direcci�
 | Eventos repetidos | `device_event_key`, `attendance_cooldown_minutes` y hora del lector. |
 | Lector conectado pero sin comandos | Estado de `device_commands` y `/iclock/getrequest` o `commands/next`. |
 | El agente no conecta | `BIOMETRIC_API_TOKEN`, `key`, red local y puerto del dispositivo. |
-| Puerto 590 inaccesible | Proceso escuchando, firewall, NAT/proxy y URL configurada en el lector. |
+| Puerto 2080 inaccesible | Proceso escuchando, firewall, NAT/proxy y dirección configurada en el lector. |
 
 ## Archivos principales
 
