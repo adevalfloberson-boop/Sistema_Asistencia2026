@@ -29,13 +29,13 @@ def main() -> None:
     except ValueError as error:
         raise SystemExit(f"APP_URL no es válido: {error}") from error
 
-    if adms_port != 590:
-        raise SystemExit("APP_URL debe incluir el puerto ADMS 590, por ejemplo https://dominio:590.")
+    if adms_port != 2080:
+        raise SystemExit("APP_URL debe incluir el puerto ADMS 2080, por ejemplo https://dominio:2080.")
 
     adms_host = parsed_url.hostname or ""
 
     print("Modo ADMS activo: no se inicia ningún agente SDK local.")
-    print("Configure cada lector ZKTeco con la dirección ADMS y el puerto 590.")
+    print("Configure cada lector ZKTeco con la dirección ADMS y el puerto 2080.")
     print()
     print(f"Servidor ADMS: {application_url}")
     print(f"Dirección del lector: {adms_host}")

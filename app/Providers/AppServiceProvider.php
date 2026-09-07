@@ -30,7 +30,7 @@ class AppServiceProvider extends ServiceProvider
             DevCommands::register(
                 sprintf(
                     'php -d extension=openssl -S 127.0.0.1:%d -t public scripts/server.php',
-                    (int) env('SERVER_PORT', 590),
+                    (int) env('SERVER_PORT', 2080),
                 ),
                 'server',
             )->blue();
