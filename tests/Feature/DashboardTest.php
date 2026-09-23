@@ -133,10 +133,17 @@ test('biometric register logs attendance successfully', function () {
     ]);
 });
 
-test('biometric register records an exit after ten minutes', function () {
-    Carbon::setTestNow(now());
+test('biometric register does not use a time cooldown', function () {
+    Carbon::setTestNow('2026-09-23 08:00:00');
+    $school = School::query()->create([
+        'code' => 'NO-COOLDOWN',
+        'name' => 'Escuela sin intervalo',
+        'attendance_entry_time' => '08:00',
+        'attendance_exit_time' => '14:00',
+    ]);
 
     Student::query()->create([
+        'school_id' => $school->id,
         'matricula' => 'MAT998',
         'nombre' => 'Registro',
         'apellido' => 'Continuo',
@@ -151,18 +158,15 @@ test('biometric register records an exit after ten minutes', function () {
 
     $this->withHeader('X-Biometric-Token', 'test-biometric-token')
         ->postJson('/api/asistencia', ['id_lector' => '998'])
-        ->assertStatus(422)
-        ->assertJsonPath('remaining_seconds', 600);
-
-    Carbon::setTestNow(now()->addMinutes(10));
-
-    $this->withHeader('X-Biometric-Token', 'test-biometric-token')
-        ->postJson('/api/asistencia', ['id_lector' => '998'])
         ->assertOk()
-        ->assertJsonPath('tipo', 'Salida');
+        ->assertJsonPath('ignored', true);
 
     $this->assertDatabaseCount('attendances', 2);
-    $this->assertDatabaseHas('attendances', ['id_lector' => '998', 'tipo' => 'Salida']);
+    $this->assertDatabaseHas('attendances', [
+        'id_lector' => '998',
+        'tipo' => 'Ignorado',
+        'ignored_reason' => 'early_departure_not_authorized',
+    ]);
     Carbon::setTestNow();
 });
 

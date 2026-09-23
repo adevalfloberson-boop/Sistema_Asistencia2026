@@ -45,7 +45,7 @@ test('unauthorized second punch before exit time is ignored but official exit is
     $this->travelTo('2026-09-23 08:00:00');
     $recorder = app(BiometricAttendanceRecorder::class);
     $recorder->record($this->student, $this->device, ['event_source' => 'live']);
-    $this->travelTo('2026-09-23 08:11:00');
+    $this->travelTo('2026-09-23 08:01:00');
     $earlyAttempt = $recorder->record($this->student, $this->device, ['event_source' => 'live']);
     $this->travelTo('2026-09-23 13:30:00');
     $officialExit = $recorder->record($this->student, $this->device, ['event_source' => 'live']);
@@ -63,7 +63,7 @@ test('authorized student can record an early departure and authorization is cons
     $recorder = app(BiometricAttendanceRecorder::class);
     $recorder->record($this->student, $this->device, ['event_source' => 'live']);
     $authorization = EarlyDepartureAuthorization::query()->create(['school_id' => $this->school->id, 'student_id' => $this->student->id, 'authorized_for' => today(), 'authorized_by_name' => 'Dirección']);
-    $this->travelTo('2026-09-23 10:00:00');
+    $this->travelTo('2026-09-23 08:01:00');
     $exit = $recorder->record($this->student, $this->device, ['event_source' => 'live']);
     $this->travelBack();
 

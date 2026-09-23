@@ -63,14 +63,12 @@ test('superadministrator manages courses students teachers and the punch interva
     expect($teacher->courses)->toHaveCount(1);
 
     $this->withSession($this->session)->put(route('schools.settings.update', $this->school), [
-        'attendance_cooldown_minutes' => 12,
         'attendance_entry_time' => '07:30',
         'attendance_exit_time' => '13:30',
         'attendance_late_grace_minutes' => 5,
     ])->assertRedirect();
 
-    expect($this->school->fresh()->attendance_cooldown_minutes)->toBe(12)
-        ->and($this->school->fresh()->attendance_entry_time->format('H:i'))->toBe('07:30')
+    expect($this->school->fresh()->attendance_entry_time->format('H:i'))->toBe('07:30')
         ->and($this->school->fresh()->attendance_late_grace_minutes)->toBe(5);
 });
 

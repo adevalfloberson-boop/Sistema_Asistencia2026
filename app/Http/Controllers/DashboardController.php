@@ -119,16 +119,6 @@ class DashboardController extends Controller
 
         $record = $attendanceRecorder->record($student, $device, $validated);
 
-        if ($record['debounced']) {
-            $cooldownMinutes = $student->school?->attendance_cooldown_minutes ?? 10;
-
-            return response()->json([
-                'success' => false,
-                'message' => "Debes esperar {$cooldownMinutes} minutos entre ponches.",
-                'remaining_seconds' => $record['remaining_seconds'],
-            ], 422);
-        }
-
         $attendance = $record['attendance'];
 
         if ($device !== null) {
@@ -147,7 +137,7 @@ class DashboardController extends Controller
             'duplicate' => ! $record['created'],
             'ignored' => $record['ignored'],
             'message' => match (true) {
-                $record['ignored'] => 'Ponche recibido, pero ignorado por estar dentro del tiempo de espera.',
+                $record['ignored'] => 'Ponche recibido, pero la salida anticipada no está autorizada.',
                 $record['created'] => 'Asistencia registrada correctamente.',
                 default => 'El ponche ya estaba sincronizado.',
             },

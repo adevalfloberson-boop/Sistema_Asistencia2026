@@ -32,7 +32,7 @@ beforeEach(function (): void {
     ]);
 });
 
-test('keyed punches inside ten minutes are synchronized but ignored for entry and exit', function () {
+test('keyed historical punches are synchronized without a time cooldown', function () {
     $send = function (string $key, string $timestamp) {
         return $this->withHeader('X-Biometric-Token', 'cooldown-secret')->postJson(route('api.asistencia'), [
             'id_lector' => '101',
@@ -44,21 +44,15 @@ test('keyed punches inside ten minutes are synchronized but ignored for entry an
     };
 
     $send('a', '2026-08-21 08:00:00')->assertOk()->assertJsonPath('tipo', 'Entrada');
-    $send('b', '2026-08-21 08:05:00')->assertOk()->assertJsonPath('ignored', true);
-    $send('c', '2026-08-21 08:10:00')->assertOk()->assertJsonPath('tipo', 'Salida');
+    $send('b', '2026-08-21 08:05:00')->assertOk()->assertJsonPath('tipo', 'Salida');
+    $send('c', '2026-08-21 08:10:00')->assertOk()->assertJsonPath('tipo', 'Entrada');
 
     expect(Attendance::query()->count())->toBe(3)
         ->and(Attendance::query()->where('is_ignored', false)->orderBy('fecha_hora')->pluck('tipo')->all())
-        ->toBe(['Entrada', 'Salida']);
-
-    $this->assertDatabaseHas('attendances', [
-        'device_event_key' => str_repeat('b', 64),
-        'is_ignored' => true,
-        'ignored_reason' => 'cooldown',
-    ]);
+        ->toBe(['Entrada', 'Salida', 'Entrada']);
 });
 
-test('offline out of order punch is compared with the closest accepted event', function () {
+test('offline out of order punches are rebuilt chronologically without a cooldown', function () {
     foreach ([
         ['a', '2026-08-21 08:00:00'],
         ['b', '2026-08-21 10:00:00'],
@@ -73,7 +67,7 @@ test('offline out of order punch is compared with the closest accepted event', f
         ])->assertOk();
     }
 
-    expect(Attendance::query()->where('is_ignored', true)->value('fecha_hora')->format('H:i:s'))->toBe('09:55:00')
-        ->and(Attendance::query()->where('is_ignored', false)->orderBy('fecha_hora')->pluck('tipo')->all())
-        ->toBe(['Entrada', 'Salida']);
+    expect(Attendance::query()->where('is_ignored', true)->count())->toBe(0)
+        ->and(Attendance::query()->orderBy('fecha_hora')->pluck('tipo')->all())
+        ->toBe(['Entrada', 'Salida', 'Entrada']);
 });

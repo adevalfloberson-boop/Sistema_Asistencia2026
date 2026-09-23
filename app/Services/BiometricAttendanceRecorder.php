@@ -26,8 +26,7 @@ class BiometricAttendanceRecorder
      *     reader_name?: string|null,
      *     reader_school?: string|null,
      *     reader_mac?: string|null,
-     *     reader_ip?: string|null,
-     *     apply_cooldown?: bool
+     *     reader_ip?: string|null
      * }  $event
      * @return array{attendance: Attendance|null, created: bool, debounced: bool, ignored: bool, remaining_seconds: int}
      */
@@ -69,28 +68,6 @@ class BiometricAttendanceRecorder
                 }
             }
 
-            $cooldownSeconds = ($device?->school?->attendance_cooldown_minutes
-                ?? $student->school?->attendance_cooldown_minutes
-                ?? 10) * 60;
-            $nearbyAttendance = $this->nearbyAcceptedAttendance($student, $recordedAt);
-            $elapsedSeconds = $nearbyAttendance === null
-                ? null
-                : abs($nearbyAttendance->fecha_hora->diffInSeconds($recordedAt));
-            $applyCooldown = $event['apply_cooldown'] ?? true;
-            $isInsideCooldown = $applyCooldown
-                && $elapsedSeconds !== null
-                && $elapsedSeconds < $cooldownSeconds;
-
-            if ($eventKey === null && $isInsideCooldown) {
-                return [
-                    'attendance' => null,
-                    'created' => false,
-                    'debounced' => true,
-                    'ignored' => false,
-                    'remaining_seconds' => (int) ceil($cooldownSeconds - $elapsedSeconds),
-                ];
-            }
-
             $attendance = Attendance::query()->create([
                 'school_id' => $device?->school_id ?? $student->school_id,
                 'biometric_device_id' => $device?->id,
@@ -109,15 +86,13 @@ class BiometricAttendanceRecorder
                 'fecha_hora' => $recordedAt,
                 'received_at' => now(),
                 'curso' => $student->curso,
-                'estado' => $isInsideCooldown ? 'Ignorado' : 'Entrada',
-                'tipo' => $isInsideCooldown ? 'Ignorado' : 'Entrada',
-                'is_ignored' => $isInsideCooldown,
-                'ignored_reason' => $isInsideCooldown ? 'cooldown' : null,
+                'estado' => 'Entrada',
+                'tipo' => 'Entrada',
+                'is_ignored' => false,
+                'ignored_reason' => null,
             ]);
 
-            if (! $isInsideCooldown) {
-                $this->rebuildStudentDay($student, $recordedAt);
-            }
+            $this->rebuildStudentDay($student, $recordedAt);
 
             return $this->result($attendance->fresh(), true);
         });
@@ -219,36 +194,6 @@ class BiometricAttendanceRecorder
         $limit = Carbon::parse($recordedAt->toDateString().' '.Carbon::parse($exitTime)->format('H:i:s'));
 
         return $recordedAt->lessThan($limit);
-    }
-
-    private function nearbyAcceptedAttendance(Student $student, Carbon $recordedAt): ?Attendance
-    {
-        $baseQuery = Attendance::query()
-            ->where('student_id', $student->id)
-            ->whereDate('fecha_hora', $recordedAt)
-            ->where('is_ignored', false);
-
-        $previous = (clone $baseQuery)
-            ->where('fecha_hora', '<=', $recordedAt)
-            ->latest('fecha_hora')
-            ->first();
-        $next = (clone $baseQuery)
-            ->where('fecha_hora', '>', $recordedAt)
-            ->oldest('fecha_hora')
-            ->first();
-
-        if ($previous === null) {
-            return $next;
-        }
-
-        if ($next === null) {
-            return $previous;
-        }
-
-        return abs($previous->fecha_hora->diffInSeconds($recordedAt))
-            <= abs($next->fecha_hora->diffInSeconds($recordedAt))
-                ? $previous
-                : $next;
     }
 
     /**

@@ -29,7 +29,7 @@ test('administrator updates schedules and notification preferences for their sch
 
     $this->withSession($session)->put(route('schools.settings.update', $school), [
         'attendance_entry_time' => '07:30', 'attendance_exit_time' => '13:30',
-        'attendance_late_grace_minutes' => 15, 'attendance_cooldown_minutes' => 10,
+        'attendance_late_grace_minutes' => 15,
     ])->assertRedirect(route('dashboard.admin.page', 'settings'));
     $this->withSession($session)->put(route('schools.notifications.update', $school), [
         'email_enabled' => '1', 'notify_entry' => '1', 'notify_early_departure' => '1', 'send_to_father' => '1',
@@ -72,6 +72,6 @@ test('schedule validation rejects invalid time ranges', function () {
     $admin = User::factory()->create(['role' => 'admin', 'school_id' => $school->id]);
     $this->withSession(schoolAdminSession($admin))->put(route('schools.settings.update', $school), [
         'attendance_entry_time' => '14:00', 'attendance_exit_time' => '07:00',
-        'attendance_late_grace_minutes' => 15, 'attendance_cooldown_minutes' => 10,
+        'attendance_late_grace_minutes' => 15,
     ])->assertSessionHasErrors('attendance_exit_time');
 });
