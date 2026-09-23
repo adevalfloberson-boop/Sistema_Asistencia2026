@@ -14,11 +14,17 @@ class Student extends Model
         'matricula',
         'nombre',
         'apellido',
+        'father_email',
+        'mother_email',
         'numero_lista',
         'area',
         'seccion',
         'curso',
         'id_lector',
+        'face_photo_path',
+        'face_sync_status',
+        'face_consent_at',
+        'face_synced_at',
         'is_active',
     ];
 
@@ -26,6 +32,8 @@ class Student extends Model
     {
         return [
             'numero_lista' => 'integer',
+            'face_consent_at' => 'datetime',
+            'face_synced_at' => 'datetime',
             'is_active' => 'boolean',
         ];
     }
@@ -56,5 +64,10 @@ class Student extends Model
     public function enrollments(): HasMany
     {
         return $this->hasMany(BiometricEnrollment::class);
+    }
+
+    public function earlyDepartureAuthorizations(): HasMany
+    {
+        return $this->hasMany(EarlyDepartureAuthorization::class);
     }
 }

@@ -1,7 +1,5 @@
 <?php
 
-use App\Models\AdmsEvent;
-use App\Models\BiometricDevice;
 use App\Models\Course;
 use App\Models\School;
 use App\Models\Student;
@@ -31,30 +29,37 @@ test('superadministrator dashboard is accessible', function () {
     ]])->get('/dashboard/admin')
         ->assertOk()
         ->assertSee('Portal escolar')
-        ->assertSee('Red global de lectores');
+        ->assertSee('Centro de operaciones')
+        ->assertSee('Estado de lectores')
+        ->assertSee('Sincronización activa')
+        ->assertSee('data-admin-async-panel', escape: false)
+        ->assertSee('data-admin-sidebar-summary', escape: false);
 });
 
-test('superadministrator dashboard shows unmatched raw adms events', function () {
+test('live activity console is rendered only on its dedicated page', function () {
+    $school = School::query()->create(['code' => 'LIVE001', 'name' => 'Escuela en Vivo']);
+    $admin = User::factory()->create(['school_id' => $school->id, 'role' => 'admin']);
+    $session = ['user' => [
+        'id' => $admin->id,
+        'username' => $admin->username,
+        'role' => 'admin',
+        'school_id' => $school->id,
+        'institution_code' => $school->code,
+    ]];
+
+    $this->withSession($session)->get(route('dashboard.admin'))
+        ->assertOk()
+        ->assertDontSee('data-live-attendance-console', escape: false);
+
+    $this->withSession($session)->get(route('dashboard.admin.page', 'attendance'))
+        ->assertOk()
+        ->assertSee('data-live-attendance-console', escape: false)
+        ->assertSee('Operación en tiempo real');
+});
+
+test('attendance dashboard does not expose raw adms events', function () {
     $school = School::query()->create(['code' => 'ADMS001', 'name' => 'Escuela ADMS']);
     $admin = User::factory()->create(['role' => 'superadmin', 'username' => 'admin-adms']);
-    $device = BiometricDevice::query()->create([
-        'school_id' => $school->id,
-        'key' => 'lector-adms-prueba',
-        'name' => 'Lector ADMS prueba',
-        'serial_number' => 'UFS2255200490',
-        'connection_mode' => 'adms',
-        'network' => null,
-        'ip_address' => '10.0.3.33',
-    ]);
-    AdmsEvent::query()->create([
-        'biometric_device_id' => $device->id,
-        'device_event_key' => hash('sha256', 'adms-event-test'),
-        'user_id' => '2',
-        'event_at' => now(),
-        'processing_status' => 'unmatched',
-        'raw_payload' => "2\t2026-08-31 10:46:39\t0\t1\t0\t0\t0",
-        'error' => 'ID biométrico 2 no registrado en esta escuela.',
-    ]);
 
     $this->withSession(['user' => [
         'id' => $admin->id,
@@ -63,10 +68,8 @@ test('superadministrator dashboard shows unmatched raw adms events', function ()
         'institution_code' => $school->code,
     ]])->get('/dashboard/admin/attendance')
         ->assertOk()
-        ->assertSee('Eventos ADMS sin filtrar')
-        ->assertSee('Lector ADMS prueba')
-        ->assertSee('Sin coincidencia')
-        ->assertSee('ID biométrico 2 no registrado en esta escuela.');
+        ->assertSee('Actividad en vivo')
+        ->assertDontSee('Eventos ADMS sin filtrar');
 });
 
 test('teacher dashboard redirects to login when there is no session', function () {

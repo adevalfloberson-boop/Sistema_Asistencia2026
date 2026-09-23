@@ -2,6 +2,7 @@
 
 use App\Models\Attendance;
 use App\Models\BiometricDevice;
+use App\Models\EarlyDepartureAuthorization;
 use App\Models\School;
 use App\Models\Student;
 use App\Models\User;
@@ -45,6 +46,12 @@ test('live punches use server time and flag lateness and early departure without
     ])->assertOk()->assertJsonPath('hora', '08:06:00');
 
     $this->travel(5)->minutes();
+    EarlyDepartureAuthorization::query()->create([
+        'school_id' => $this->school->id,
+        'student_id' => $this->student->id,
+        'authorized_for' => today(),
+        'authorized_by_name' => 'Administración',
+    ]);
     $this->withHeader('X-Biometric-Token', 'schedule-secret')->postJson(route('api.asistencia'), [
         'id_lector' => '101',
         'reader_key' => $this->device->key,

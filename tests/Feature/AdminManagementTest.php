@@ -94,3 +94,65 @@ test('student list number is unique inside its course', function () {
         'id_lector' => '102',
     ])->assertSessionHasErrors('numero_lista');
 });
+
+test('school administrator registers a student with optional parent emails without selecting a school', function () {
+    $admin = User::factory()->create([
+        'school_id' => $this->school->id,
+        'role' => 'admin',
+    ]);
+    $course = Course::factory()->create(['school_id' => $this->school->id]);
+    $session = ['user' => [
+        'id' => $admin->id,
+        'username' => $admin->username,
+        'role' => 'admin',
+        'school_id' => $this->school->id,
+        'institution_code' => $this->school->code,
+    ]];
+
+    $this->withSession($session)->post(route('students.store'), [
+        'course_id' => $course->id,
+        'matricula' => 'P-EMAIL-001',
+        'nombre' => 'Laura',
+        'apellido' => 'Gómez',
+        'numero_lista' => 8,
+        'id_lector' => '808',
+        'father_email' => 'padre@example.com',
+        'mother_email' => 'madre@example.com',
+    ])->assertRedirect(route('dashboard.admin.page', 'students'));
+
+    $this->assertDatabaseHas('students', [
+        'school_id' => $this->school->id,
+        'matricula' => 'P-EMAIL-001',
+        'father_email' => 'padre@example.com',
+        'mother_email' => 'madre@example.com',
+    ]);
+
+    $this->withSession($session)->get(route('dashboard.admin.page', 'students'))
+        ->assertOk()
+        ->assertSee('Registrar estudiante')
+        ->assertSee('Correo del padre')
+        ->assertSee('Correo de la madre')
+        ->assertDontSee('Todas las escuelas');
+});
+
+test('parent emails are optional and validated when provided', function () {
+    $admin = User::factory()->create(['school_id' => $this->school->id, 'role' => 'admin']);
+    $course = Course::factory()->create(['school_id' => $this->school->id]);
+    $session = ['user' => ['id' => $admin->id, 'role' => 'admin', 'school_id' => $this->school->id]];
+    $payload = [
+        'course_id' => $course->id,
+        'matricula' => 'OPTIONAL-001',
+        'nombre' => 'Luis',
+        'apellido' => 'Díaz',
+        'id_lector' => '909',
+    ];
+
+    $this->withSession($session)->post(route('students.store'), $payload)->assertSessionHasNoErrors();
+
+    $this->withSession($session)->post(route('students.store'), [
+        ...$payload,
+        'matricula' => 'INVALID-001',
+        'id_lector' => '910',
+        'father_email' => 'correo-invalido',
+    ])->assertSessionHasErrors('father_email');
+});

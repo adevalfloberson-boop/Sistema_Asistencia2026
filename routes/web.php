@@ -8,6 +8,12 @@ use App\Http\Controllers\ClassAttendanceController;
 use App\Http\Controllers\CourseController;
 use App\Http\Controllers\DashboardController;
 use App\Http\Controllers\DeviceController;
+use App\Http\Controllers\EarlyDepartureLinkController;
+use App\Http\Controllers\PublicDashboardController;
+use App\Http\Controllers\PublicEarlyDepartureController;
+use App\Http\Controllers\SchoolMailSettingsController;
+use App\Http\Controllers\SchoolMailTestController;
+use App\Http\Controllers\SchoolNotificationSettingsController;
 use App\Http\Controllers\SchoolSettingsController;
 use App\Http\Controllers\StudentController;
 use App\Http\Controllers\SuperAdminController;
@@ -29,6 +35,11 @@ Route::post('/login', [AuthController::class, 'login'])->middleware('throttle:5,
 Route::post('/logout', [AuthController::class, 'logout'])->name('logout');
 
 Route::post('/api/asistencia', [DashboardController::class, 'registrarAsistencia'])->name('api.asistencia');
+Route::get('/vista-asistencia/{token}', [PublicDashboardController::class, 'show'])->middleware('throttle:120,1')->name('public.dashboard.show');
+Route::get('/vista-asistencia/{token}/actividad', [PublicDashboardController::class, 'activity'])->middleware('throttle:120,1')->name('public.dashboard.activity');
+Route::get('/autorizar-salidas/{token}', [PublicEarlyDepartureController::class, 'show'])->middleware('throttle:120,1')->name('public.early-departures.show');
+Route::post('/autorizar-salidas/{token}', [PublicEarlyDepartureController::class, 'store'])->middleware('throttle:60,1')->name('public.early-departures.store');
+Route::delete('/autorizar-salidas/{token}/{authorization}', [PublicEarlyDepartureController::class, 'destroy'])->middleware('throttle:60,1')->name('public.early-departures.destroy');
 
 Route::prefix('iclock')
     ->name('adms.')
@@ -72,15 +83,24 @@ Route::middleware(['role:superadmin,admin'])->prefix('dashboard/admin')->group(f
         Route::put('/docentes/{teacher}', [TeacherController::class, 'update'])->name('teachers.update');
         Route::delete('/docentes/{teacher}', [TeacherController::class, 'destroy'])->name('teachers.destroy');
         Route::put('/escuelas/{school}/configuracion', SchoolSettingsController::class)->name('schools.settings.update');
+        Route::put('/escuelas/{school}/notificaciones', [SchoolNotificationSettingsController::class, 'update'])->name('schools.notifications.update');
+        Route::put('/escuelas/{school}/correo', [SchoolMailSettingsController::class, 'update'])->name('schools.mail.update');
+        Route::post('/escuelas/{school}/correo/prueba', SchoolMailTestController::class)->middleware('throttle:3,1')->name('schools.mail.test');
+        Route::post('/escuelas/{school}/enlace-publico', [PublicDashboardController::class, 'generate'])->name('schools.public-dashboard.generate');
+        Route::delete('/escuelas/{school}/enlace-publico', [PublicDashboardController::class, 'revoke'])->name('schools.public-dashboard.revoke');
+        Route::post('/escuelas/{school}/enlace-salidas', [EarlyDepartureLinkController::class, 'generate'])->name('schools.early-departures.generate');
+        Route::delete('/escuelas/{school}/enlace-salidas', [EarlyDepartureLinkController::class, 'revoke'])->name('schools.early-departures.revoke');
         Route::post('/asistencias/{attendance}/excusa', [AttendanceExcuseController::class, 'store'])->name('attendances.excuses.store');
 
         Route::name('devices.')->group(function (): void {
             Route::get('/dispositivos/estado', [DeviceController::class, 'statuses'])->name('statuses');
             Route::post('/dispositivos', [DeviceController::class, 'store'])->name('store');
             Route::put('/dispositivos/{device}', [DeviceController::class, 'update'])->name('update');
+            Route::delete('/dispositivos/{device}', [DeviceController::class, 'destroy'])->name('destroy');
             Route::post('/dispositivos/{device}/consultar', [DeviceController::class, 'inspect'])->name('inspect');
             Route::post('/dispositivos/{device}/sincronizar-hora', [DeviceController::class, 'synchronizeTime'])->name('sync-time');
             Route::post('/enrolamientos', [DeviceController::class, 'enroll'])->name('enroll');
+            Route::post('/enrolamientos/rostro', [DeviceController::class, 'enrollFace'])->name('enroll-face');
             Route::post('/enrolamientos/{enrollment}/verificar', [DeviceController::class, 'verifyEnrollment'])->name('enrollments.verify');
             Route::get('/ordenes/{command}', [DeviceController::class, 'commandStatus'])->name('commands.show');
         });

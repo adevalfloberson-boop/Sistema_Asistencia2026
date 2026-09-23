@@ -9,6 +9,7 @@ use App\Models\Student;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 
@@ -80,6 +81,18 @@ class DeviceController extends Controller
         return redirect()
             ->route('dashboard.admin.page', 'devices')
             ->with('success', "Configuración de {$device->name} actualizada.");
+    }
+
+    public function destroy(BiometricDevice $device): RedirectResponse
+    {
+        $this->ensureAdministrator();
+
+        $deviceName = $device->name;
+        $device->delete();
+
+        return redirect()
+            ->route('dashboard.admin.page', 'devices')
+            ->with('success', "Lector {$deviceName} eliminado.");
     }
 
     public function inspect(BiometricDevice $device): RedirectResponse
@@ -164,6 +177,63 @@ class DeviceController extends Controller
         ]);
 
         return back()->with('success', 'Verificación de plantilla enviada al lector.');
+    }
+
+    public function enrollFace(Request $request): RedirectResponse
+    {
+        $this->ensureAdministrator();
+
+        $validated = $request->validate([
+            'student_id' => ['required', 'integer', 'exists:students,id'],
+            'biometric_device_id' => ['required', 'integer', 'exists:biometric_devices,id'],
+            'face_photo' => ['required', 'image', 'mimes:jpg,jpeg', 'max:300'],
+            'biometric_consent' => ['accepted'],
+        ]);
+
+        $student = Student::query()->findOrFail($validated['student_id']);
+        $device = BiometricDevice::query()->findOrFail($validated['biometric_device_id']);
+
+        if ($student->school_id !== $device->school_id) {
+            return back()->withErrors(['face_photo' => 'El estudiante y el lector deben pertenecer a la misma escuela.']);
+        }
+
+        if (! $device->is_active || ! in_array($device->connection_mode, ['adms', 'hybrid'], true)) {
+            return back()->withErrors(['face_photo' => 'El lector debe estar activo y usar ADMS para sincronizar el rostro.']);
+        }
+
+        if ($student->id_lector === null || $student->id_lector === '') {
+            return back()->withErrors(['face_photo' => 'El estudiante necesita un ID biométrico para registrar el rostro.']);
+        }
+
+        $path = $request->file('face_photo')->storeAs(
+            "biometrics/faces/{$student->school_id}",
+            Str::uuid().'.jpg',
+            'local',
+        );
+
+        if ($path === false) {
+            return back()->withErrors(['face_photo' => 'No se pudo guardar la fotografía facial.']);
+        }
+
+        $previousPath = $student->face_photo_path;
+        $student->update([
+            'face_photo_path' => $path,
+            'face_sync_status' => 'pending',
+            'face_consent_at' => now(),
+            'face_synced_at' => null,
+        ]);
+
+        $this->queueCommand($device, 'sync_face', $student, [
+            'user_id' => $student->id_lector,
+            'photo_path' => $path,
+        ]);
+
+        if (is_string($previousPath) && $previousPath !== $path) {
+            Storage::disk('local')->delete($previousPath);
+        }
+
+        return to_route('dashboard.admin.page', 'enrollment')
+            ->with('success', "Fotografía facial de {$student->nombre} guardada y enviada al lector.");
     }
 
     public function commandStatus(DeviceCommand $command): JsonResponse

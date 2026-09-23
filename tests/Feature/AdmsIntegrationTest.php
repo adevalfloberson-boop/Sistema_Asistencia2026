@@ -3,10 +3,13 @@
 use App\Models\AdmsEvent;
 use App\Models\Attendance;
 use App\Models\BiometricDevice;
+use App\Models\BiometricEnrollment;
 use App\Models\DeviceCommand;
+use App\Models\EarlyDepartureAuthorization;
 use App\Models\School;
 use App\Models\Student;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
 
@@ -96,7 +99,7 @@ test('adms attendance creates one deduplicated attendance using existing rules',
 
 test('adms registers the second punch as exit after the configured minimum time', function () {
     [$school] = admsDevice();
-    Student::query()->create([
+    $student = Student::query()->create([
         'school_id' => $school->id,
         'matricula' => 'MAT-002',
         'nombre' => 'Luis',
@@ -109,6 +112,12 @@ test('adms registers the second punch as exit after the configured minimum time'
     $this->travelTo('2026-09-02 07:30:00');
     $this->call('POST', '/iclock/cdata?SN=M2F123456&table=ATTLOG', [], [], [], [], "1002\t2026-09-02 07:30:00\t0\t1\t0\t0\t0\n")
         ->assertOk();
+    EarlyDepartureAuthorization::query()->create([
+        'school_id' => $school->id,
+        'student_id' => $student->id,
+        'authorized_for' => today(),
+        'authorized_by_name' => 'Dirección',
+    ]);
     $this->travel(10)->minutes();
     $this->call('POST', '/iclock/cdata?SN=M2F123456&table=ATTLOG', [], [], [], [], "1002\t2026-09-02 07:40:00\t0\t1\t0\t0\t0\n")
         ->assertOk();
@@ -146,4 +155,113 @@ test('adms reader can poll and complete a supported command', function () {
         ->assertOk();
 
     expect($command->fresh()->status)->toBe('completed');
+});
+
+test('adms reader can receive and complete a remote fingerprint enrollment', function () {
+    [$school, $device] = admsDevice();
+    $student = Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'MAT-ENROLL-001',
+        'nombre' => 'María',
+        'apellido' => 'Santos',
+        'curso' => '2º A',
+        'id_lector' => '2001',
+    ]);
+    $command = DeviceCommand::query()->create([
+        'biometric_device_id' => $device->id,
+        'student_id' => $student->id,
+        'type' => 'enroll',
+        'payload' => [
+            'user_id' => '2001',
+            'finger_index' => 2,
+        ],
+        'status' => 'pending',
+    ]);
+    $enrollment = BiometricEnrollment::query()->create([
+        'biometric_device_id' => $device->id,
+        'student_id' => $student->id,
+        'device_command_id' => $command->id,
+        'user_id' => '2001',
+        'finger_index' => 2,
+        'status' => 'pending',
+    ]);
+
+    $this->get('/iclock/getrequest?SN=M2F123456')
+        ->assertOk()
+        ->assertSeeText("C:{$command->id}:ENROLL_FP PIN=2001\tFID=2\tRETRY=3\tOVERWRITE=1");
+
+    $this->call('POST', '/iclock/devicecmd?SN=M2F123456', [], [], [], [], "ID={$command->id}&Return=0&CMD=ENROLL_FP")
+        ->assertOk();
+
+    expect($command->fresh()->status)->toBe('completed')
+        ->and($enrollment->fresh()->status)->toBe('enrolled')
+        ->and($enrollment->fresh()->enrolled_at)->not->toBeNull();
+});
+
+test('adms reader reports a failed remote fingerprint enrollment', function () {
+    [$school, $device] = admsDevice();
+    $student = Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'MAT-ENROLL-002',
+        'nombre' => 'José',
+        'apellido' => 'López',
+        'curso' => '2º B',
+        'id_lector' => '2002',
+    ]);
+    $command = DeviceCommand::query()->create([
+        'biometric_device_id' => $device->id,
+        'student_id' => $student->id,
+        'type' => 'enroll',
+        'payload' => ['user_id' => '2002', 'finger_index' => 1],
+        'status' => 'processing',
+    ]);
+    $enrollment = BiometricEnrollment::query()->create([
+        'biometric_device_id' => $device->id,
+        'student_id' => $student->id,
+        'device_command_id' => $command->id,
+        'user_id' => '2002',
+        'finger_index' => 1,
+        'status' => 'pending',
+    ]);
+
+    $this->call('POST', '/iclock/devicecmd?SN=M2F123456', [], [], [], [], "ID={$command->id}&Return=-1&CMD=ENROLL_FP")
+        ->assertOk();
+
+    expect($command->fresh()->status)->toBe('failed')
+        ->and($enrollment->fresh()->status)->toBe('failed')
+        ->and($enrollment->fresh()->error)->toContain('código -1');
+});
+
+test('adms reader receives a visible face comparison photo and confirms synchronization', function () {
+    Storage::fake('local');
+    [$school, $device] = admsDevice();
+    Storage::disk('local')->put('biometrics/faces/test.jpg', 'jpeg-content');
+    $student = Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'MAT-FACE-001',
+        'nombre' => 'Luz',
+        'apellido' => 'Díaz',
+        'curso' => '3º A',
+        'id_lector' => '44',
+        'face_photo_path' => 'biometrics/faces/test.jpg',
+        'face_sync_status' => 'pending',
+        'face_consent_at' => now(),
+    ]);
+    $command = DeviceCommand::query()->create([
+        'biometric_device_id' => $device->id,
+        'student_id' => $student->id,
+        'type' => 'sync_face',
+        'payload' => ['user_id' => '44', 'photo_path' => 'biometrics/faces/test.jpg'],
+        'status' => 'pending',
+    ]);
+    $encoded = base64_encode('jpeg-content');
+
+    $this->get('/iclock/getrequest?SN=M2F123456')
+        ->assertOk()
+        ->assertSeeText("C:{$command->id}:DATA UPDATE biophoto PIN=44\tType=9\tSize=".strlen($encoded)."\tContent={$encoded}\tFormat=0\tPostBackTmpFlag=1");
+    $this->call('POST', '/iclock/devicecmd?SN=M2F123456', [], [], [], [], "ID={$command->id}&Return=0&CMD=DATA")
+        ->assertOk();
+
+    expect($student->fresh()->face_sync_status)->toBe('synced')
+        ->and($student->fresh()->face_synced_at)->not->toBeNull();
 });

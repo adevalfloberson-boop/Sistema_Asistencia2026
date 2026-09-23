@@ -3,12 +3,14 @@
 namespace App\Http\Controllers;
 
 use App\Models\BiometricDevice;
+use App\Models\BiometricEnrollment;
 use App\Models\DeviceCommand;
 use App\Services\AdmsAttendanceProcessor;
 use App\Services\AdmsPayloadParser;
 use Illuminate\Http\Request;
 use Illuminate\Http\Response;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
 class AdmsController extends Controller
@@ -91,6 +93,8 @@ class AdmsController extends Controller
         $instruction = match ($command->type) {
             'inspect' => 'INFO',
             'sync_time' => 'SET OPTIONS DateTime='.now()->format('Y-m-d H:i:s'),
+            'enroll' => $this->fingerprintEnrollmentInstruction($command),
+            'sync_face' => $this->facePhotoInstruction($command),
             default => null,
         };
 
@@ -126,9 +130,61 @@ class AdmsController extends Controller
                 'error' => $returnCode === 0 ? null : "El lector devolvió el código {$returnCode}.",
                 'completed_at' => now(),
             ]);
+
+            if ($command->type === 'enroll') {
+                BiometricEnrollment::query()
+                    ->where('device_command_id', $command->id)
+                    ->update([
+                        'status' => $returnCode === 0 ? 'enrolled' : 'failed',
+                        'enrolled_at' => $returnCode === 0 ? now() : null,
+                        'error' => $returnCode === 0 ? null : "El lector devolvió el código {$returnCode} durante el enrolamiento.",
+                    ]);
+            }
+
+            if ($command->type === 'sync_face' && $command->student_id !== null) {
+                $command->student()->update([
+                    'face_sync_status' => $returnCode === 0 ? 'synced' : 'failed',
+                    'face_synced_at' => $returnCode === 0 ? now() : null,
+                ]);
+            }
         }
 
         return $this->plain('OK');
+    }
+
+    private function fingerprintEnrollmentInstruction(DeviceCommand $command): ?string
+    {
+        $userId = trim((string) data_get($command->payload, 'user_id'));
+        $fingerIndex = filter_var(
+            data_get($command->payload, 'finger_index'),
+            FILTER_VALIDATE_INT,
+            ['options' => ['min_range' => 0, 'max_range' => 9]],
+        );
+
+        if ($userId === '' || $fingerIndex === false || preg_match('/[\s\t\r\n]/', $userId) === 1) {
+            return null;
+        }
+
+        return "ENROLL_FP PIN={$userId}\tFID={$fingerIndex}\tRETRY=3\tOVERWRITE=1";
+    }
+
+    private function facePhotoInstruction(DeviceCommand $command): ?string
+    {
+        $userId = trim((string) data_get($command->payload, 'user_id'));
+        $photoPath = data_get($command->payload, 'photo_path');
+
+        if (
+            $userId === ''
+            || preg_match('/[\s\t\r\n]/', $userId) === 1
+            || ! is_string($photoPath)
+            || ! Storage::disk('local')->exists($photoPath)
+        ) {
+            return null;
+        }
+
+        $content = base64_encode(Storage::disk('local')->get($photoPath));
+
+        return "DATA UPDATE biophoto PIN={$userId}\tType=9\tSize=".strlen($content)."\tContent={$content}\tFormat=0\tPostBackTmpFlag=1";
     }
 
     private function device(Request $request): BiometricDevice

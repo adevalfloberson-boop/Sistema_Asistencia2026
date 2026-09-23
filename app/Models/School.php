@@ -4,6 +4,7 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class School extends Model
 {
@@ -18,6 +19,8 @@ class School extends Model
         'logo_path',
         'active_modules',
         'primary_color',
+        'public_dashboard_token',
+        'early_departure_token',
         'attendance_cooldown_minutes',
         'attendance_entry_time',
         'attendance_exit_time',
@@ -60,5 +63,20 @@ class School extends Model
     public function attendances(): HasMany
     {
         return $this->hasMany(Attendance::class);
+    }
+
+    public function notificationSetting(): HasOne
+    {
+        return $this->hasOne(SchoolNotificationSetting::class);
+    }
+
+    public function attendanceNotifications(): HasMany
+    {
+        return $this->hasMany(AttendanceNotification::class);
+    }
+
+    public function earlyDepartureAuthorizations(): HasMany
+    {
+        return $this->hasMany(EarlyDepartureAuthorization::class);
     }
 }

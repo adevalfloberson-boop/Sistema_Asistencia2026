@@ -60,7 +60,7 @@ class ClassAttendanceController extends Controller
             'class_session_id' => ['required', 'integer', 'exists:class_sessions,id'],
             'student_id' => ['required', 'integer', 'exists:students,id'],
             'status' => ['required', Rule::in(array_keys(ClassAttendanceVerification::statusLabels()))],
-            'note' => ['nullable', 'required_if:status,campus_absent_class', 'string', 'max:1000'],
+            'note' => ['nullable', 'string', 'max:1000'],
         ]);
 
         $teacher = $this->teacher($request);

@@ -4,12 +4,17 @@ namespace App\Services;
 
 use App\Models\Attendance;
 use App\Models\BiometricDevice;
+use App\Models\EarlyDepartureAuthorization;
 use App\Models\Student;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class BiometricAttendanceRecorder
 {
+    public function __construct(private readonly AttendanceNotificationService $notificationService) {}
+
     /**
      * @param  array{
      *     event_key?: string|null,
@@ -28,7 +33,7 @@ class BiometricAttendanceRecorder
      */
     public function record(Student $student, ?BiometricDevice $device, array $event): array
     {
-        return DB::transaction(function () use ($student, $device, $event): array {
+        $result = DB::transaction(function () use ($student, $device, $event): array {
             $eventKey = $event['event_key'] ?? null;
             $recordedAt = ($event['event_source'] ?? 'live') === 'history' && isset($event['event_timestamp'])
                 ? Carbon::parse($event['event_timestamp'])
@@ -116,10 +121,25 @@ class BiometricAttendanceRecorder
 
             return $this->result($attendance->fresh(), true);
         });
+
+        if ($result['created'] && ! $result['ignored'] && ($event['event_source'] ?? 'live') === 'live') {
+            try {
+                $this->notificationService->sendFor($result['attendance']);
+            } catch (Throwable $exception) {
+                Log::error('Falló el procesamiento de notificación posterior al ponche.', [
+                    'attendance_id' => $result['attendance']?->id,
+                    'exception' => $exception::class,
+                ]);
+            }
+        }
+
+        return $result;
     }
 
     private function rebuildStudentDay(Student $student, Carbon $date): void
     {
+        $acceptedIndex = 0;
+
         Attendance::query()
             ->where('student_id', $student->id)
             ->whereDate('fecha_hora', $date)
@@ -127,20 +147,54 @@ class BiometricAttendanceRecorder
             ->orderBy('fecha_hora')
             ->orderBy('id')
             ->get()
-            ->each(function (Attendance $attendance, int $index) use ($student): void {
-                $type = $index % 2 === 0 ? 'Entrada' : 'Salida';
+            ->each(function (Attendance $attendance) use ($student, &$acceptedIndex): void {
+                $type = $acceptedIndex % 2 === 0 ? 'Entrada' : 'Salida';
                 $schedule = $student->school;
                 $isLate = $type === 'Entrada' && $this->isLate($attendance->fecha_hora, $schedule?->attendance_entry_time, $schedule?->attendance_late_grace_minutes);
                 $isEarlyDeparture = $type === 'Salida' && $this->isBeforeExitTime($attendance->fecha_hora, $schedule?->attendance_exit_time);
 
-                if ($attendance->tipo !== $type || $attendance->estado !== $type || $attendance->is_late !== $isLate || $attendance->is_early_departure !== $isEarlyDeparture) {
+                if ($isEarlyDeparture && $attendance->sync_source !== 'history') {
+                    $authorization = EarlyDepartureAuthorization::query()
+                        ->where('school_id', $student->school_id)
+                        ->where('student_id', $student->id)
+                        ->whereDate('authorized_for', $attendance->fecha_hora)
+                        ->where(function ($query) use ($attendance): void {
+                            $query->whereNull('used_at')->orWhere('attendance_id', $attendance->id);
+                        })
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($authorization === null) {
+                        $attendance->update([
+                            'tipo' => 'Ignorado',
+                            'estado' => 'Ignorado',
+                            'is_ignored' => true,
+                            'ignored_reason' => 'early_departure_not_authorized',
+                            'is_late' => false,
+                            'is_early_departure' => false,
+                        ]);
+
+                        return;
+                    }
+
+                    $authorization->update([
+                        'attendance_id' => $attendance->id,
+                        'used_at' => $attendance->fecha_hora,
+                    ]);
+                }
+
+                if ($attendance->tipo !== $type || $attendance->estado !== $type || $attendance->is_late !== $isLate || $attendance->is_early_departure !== $isEarlyDeparture || $attendance->is_ignored) {
                     $attendance->update([
                         'tipo' => $type,
                         'estado' => $type,
+                        'is_ignored' => false,
+                        'ignored_reason' => null,
                         'is_late' => $isLate,
                         'is_early_departure' => $isEarlyDeparture,
                     ]);
                 }
+
+                $acceptedIndex++;
             });
     }
 

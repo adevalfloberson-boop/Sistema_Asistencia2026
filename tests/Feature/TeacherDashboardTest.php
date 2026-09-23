@@ -99,7 +99,6 @@ test('teacher can report a student who is on campus but absent from class', func
         'class_session_id' => $classSession->id,
         'student_id' => $student->id,
         'status' => ClassAttendanceVerification::StatusCampusAbsentClass,
-        'note' => 'Está en el plantel, pero no se presentó al aula.',
     ])->assertRedirect();
 
     $this->assertDatabaseHas('class_attendance_verifications', [
@@ -109,6 +108,28 @@ test('teacher can report a student who is on campus but absent from class', func
         'status' => ClassAttendanceVerification::StatusCampusAbsentClass,
         'was_on_campus' => true,
     ]);
+});
+
+test('teacher sees the four quick verification buttons during an open class', function () {
+    ['school' => $school, 'teacher' => $teacher, 'course' => $course] = teacherPanelFixture();
+
+    ClassSession::query()->create([
+        'course_id' => $course->id,
+        'teacher_id' => $teacher->id,
+        'scheduled_at' => now(),
+        'started_at' => now(),
+        'status' => 'open',
+    ]);
+
+    $this->withSession(teacherPanelSession($teacher, $school))
+        ->get(route('dashboard.docente', ['course' => $course->id]))
+        ->assertOk()
+        ->assertSee('Presente')
+        ->assertSee('Tarde')
+        ->assertSee('Ausente')
+        ->assertSee('Excusa')
+        ->assertSee('Agregar observación')
+        ->assertDontSee('Seleccionar estado');
 });
 
 test('teacher cannot label a student as on campus when there is no active entry', function () {

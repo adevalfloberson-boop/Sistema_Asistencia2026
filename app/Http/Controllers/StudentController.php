@@ -12,6 +12,7 @@ class StudentController extends Controller
 {
     public function store(Request $request): RedirectResponse
     {
+        $this->applyAdministratorSchool($request);
         $validated = $this->validated($request);
         $course = Course::query()->findOrFail($validated['course_id']);
 
@@ -23,6 +24,7 @@ class StudentController extends Controller
 
     public function update(Request $request, Student $student): RedirectResponse
     {
+        $this->applyAdministratorSchool($request);
         $validated = $this->validated($request, $student);
         $course = Course::query()->findOrFail($validated['course_id']);
         $student->update($this->studentAttributes($validated, $course));
@@ -54,6 +56,8 @@ class StudentController extends Controller
             'matricula' => ['required', 'string', 'max:255', Rule::unique('students')->ignore($student)],
             'nombre' => ['required', 'string', 'max:255'],
             'apellido' => ['required', 'string', 'max:255'],
+            'father_email' => ['nullable', 'email', 'max:255'],
+            'mother_email' => ['nullable', 'email', 'max:255'],
             'numero_lista' => [
                 'nullable',
                 'integer',
@@ -80,5 +84,12 @@ class StudentController extends Controller
             'seccion' => $course->section,
             'is_active' => true,
         ];
+    }
+
+    private function applyAdministratorSchool(Request $request): void
+    {
+        if ($request->session()->get('user.role') === 'admin') {
+            $request->merge(['school_id' => $request->session()->get('user.school_id')]);
+        }
     }
 }

@@ -2,8 +2,8 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\AdmsEvent;
 use App\Models\Attendance;
+use App\Models\AttendanceNotification;
 use App\Models\BiometricDevice;
 use App\Models\BiometricEnrollment;
 use App\Models\Course;
@@ -304,9 +304,42 @@ class DashboardController extends Controller
                 'last_seen_at' => $schoolDevices->max('last_seen_at'),
             ];
         });
-        $students = in_array($activePage, ['students', 'enrollment'], true)
-            ? (clone $studentQuery)->with('school')->orderBy('nombre')->orderBy('apellido')->get()
-            : collect();
+        $studentSummary = ['total' => 0, 'active' => 0, 'biometric' => 0, 'pending' => 0];
+        if ($activePage === 'students' && ($usuario['role'] ?? null) === 'admin') {
+            $managementStudentsQuery = Student::query()->where('school_id', $lockedSchoolId);
+            $studentSummary = [
+                'total' => (clone $managementStudentsQuery)->count(),
+                'active' => (clone $managementStudentsQuery)->where('is_active', true)->count(),
+                'biometric' => (clone $managementStudentsQuery)->whereNotNull('id_lector')->where('id_lector', '!=', '')->count(),
+                'pending' => (clone $managementStudentsQuery)->where(fn ($query) => $query->whereNull('id_lector')->orWhere('id_lector', ''))->count(),
+            ];
+            $students = $managementStudentsQuery
+                ->with(['school', 'course'])
+                ->withMax(['attendances as last_entry_at' => fn ($query) => $query->where('tipo', 'Entrada')], 'fecha_hora')
+                ->withMax(['attendances as last_exit_at' => fn ($query) => $query->where('tipo', 'Salida')], 'fecha_hora')
+                ->when($request?->filled('student_search'), function ($query) use ($request): void {
+                    $search = $request->string('student_search')->toString();
+                    $query->where(function ($studentQuery) use ($search): void {
+                        $studentQuery->where('nombre', 'like', "%{$search}%")
+                            ->orWhere('apellido', 'like', "%{$search}%")
+                            ->orWhere('matricula', 'like', "%{$search}%")
+                            ->orWhere('id_lector', 'like', "%{$search}%");
+                    });
+                })
+                ->when($request?->integer('student_course_id'), fn ($query, int $courseId) => $query->where('course_id', $courseId))
+                ->when($request?->string('student_status')->toString() === 'active', fn ($query) => $query->where('is_active', true))
+                ->when($request?->string('student_status')->toString() === 'inactive', fn ($query) => $query->where('is_active', false))
+                ->when($request?->string('student_biometric')->toString() === 'registered', fn ($query) => $query->whereNotNull('id_lector')->where('id_lector', '!=', ''))
+                ->when($request?->string('student_biometric')->toString() === 'pending', fn ($query) => $query->where(fn ($studentQuery) => $studentQuery->whereNull('id_lector')->orWhere('id_lector', '')))
+                ->orderBy('nombre')
+                ->orderBy('apellido')
+                ->paginate(25)
+                ->withQueryString();
+        } else {
+            $students = in_array($activePage, ['students', 'enrollment'], true)
+                ? (clone $studentQuery)->with('school')->orderBy('nombre')->orderBy('apellido')->get()
+                : collect();
+        }
         $allCourses = in_array($activePage, ['overview', 'students', 'courses', 'teachers'], true)
             ? Course::query()->with('school')->withCount('students')->when($lockedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId))->orderBy('school_id')->orderBy('name')->get()
             : collect();
@@ -328,27 +361,20 @@ class DashboardController extends Controller
             ->latest()
             ->take(12)
             ->get() : collect();
-        $recentAdmsEvents = $activePage === 'attendance' ? AdmsEvent::query()
-            ->select([
-                'id',
-                'biometric_device_id',
-                'student_id',
-                'user_id',
-                'event_at',
-                'processing_status',
-                'raw_payload',
-                'error',
-                'created_at',
-            ])
-            ->with([
-                'device:id,school_id,name,serial_number,ip_address',
-                'device.school:id,name,short_name',
-                'student:id,nombre,apellido,matricula,curso',
-            ])
-            ->when($lockedSchoolId, fn ($query, int $schoolId) => $query->whereHas('device', fn ($deviceQuery) => $deviceQuery->where('school_id', $schoolId)))
-            ->latest()
-            ->take(12)
-            ->get() : collect();
+        $shareSchool = $activePage === 'overview' && $selectedSchoolId
+            ? $schools->firstWhere('id', $selectedSchoolId)
+            : null;
+        $settingsSchool = $activePage === 'settings' && $lockedSchoolId
+            ? School::query()->with('notificationSetting')->findOrFail($lockedSchoolId)
+            : null;
+        $notificationHistory = $settingsSchool === null
+            ? collect()
+            : AttendanceNotification::query()
+                ->with('student')
+                ->where('school_id', $settingsSchool->id)
+                ->latest('processed_at')
+                ->take(20)
+                ->get();
 
         return view('layouts.dashboard', [
             'usuario' => $usuario,
@@ -375,11 +401,14 @@ class DashboardController extends Controller
             'deviceSummary' => $deviceSummary,
             'schoolNetwork' => $schoolNetwork,
             'students' => $students,
+            'studentSummary' => $studentSummary,
             'allCourses' => $allCourses,
             'teachers' => $teachers,
             'enrollments' => $enrollments,
             'recentCommands' => $recentCommands,
-            'recentAdmsEvents' => $recentAdmsEvents,
+            'shareSchool' => $shareSchool,
+            'settingsSchool' => $settingsSchool,
+            'notificationHistory' => $notificationHistory,
         ]);
     }
 }
