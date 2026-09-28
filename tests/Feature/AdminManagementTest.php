@@ -112,6 +112,7 @@ test('school administrator registers a student with optional parent emails witho
         'matricula' => 'P-EMAIL-001',
         'nombre' => 'Laura',
         'apellido' => 'Gómez',
+        'sexo' => 'Femenino',
         'numero_lista' => 8,
         'id_lector' => '808',
         'father_email' => 'padre@example.com',
@@ -121,6 +122,7 @@ test('school administrator registers a student with optional parent emails witho
     $this->assertDatabaseHas('students', [
         'school_id' => $this->school->id,
         'matricula' => 'P-EMAIL-001',
+        'sexo' => 'Femenino',
         'father_email' => 'padre@example.com',
         'mother_email' => 'madre@example.com',
     ]);
@@ -128,6 +130,7 @@ test('school administrator registers a student with optional parent emails witho
     $this->withSession($session)->get(route('dashboard.admin.page', 'students'))
         ->assertOk()
         ->assertSee('Registrar estudiante')
+        ->assertSee('Femenino')
         ->assertSee('Correo del padre')
         ->assertSee('Correo de la madre')
         ->assertDontSee('Todas las escuelas');

@@ -1,6 +1,7 @@
 <?php
 
 use App\Http\Controllers\AdmsController;
+use App\Http\Controllers\AntigravityDesignController;
 use App\Http\Controllers\AttendanceExcuseController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BiometricAgentController;
@@ -69,7 +70,7 @@ Route::prefix('api/biometric')->name('api.biometric.')->group(function (): void 
 Route::middleware(['role:superadmin,admin'])->prefix('dashboard/admin')->group(function (): void {
     Route::get('/', [DashboardController::class, 'admin'])->name('dashboard.admin');
     Route::get('/{page}', [DashboardController::class, 'admin'])
-        ->whereIn('page', ['overview', 'devices', 'enrollment', 'students', 'courses', 'teachers', 'settings', 'attendance'])
+        ->whereIn('page', ['overview', 'devices', 'enrollment', 'students', 'courses', 'teachers', 'settings', 'attendance', 'reports'])
         ->name('dashboard.admin.page');
 
     Route::middleware('school-administration')->group(function (): void {
@@ -121,7 +122,24 @@ Route::middleware('role:teacher')->prefix('dashboard/docente')->group(function (
     Route::get('/', TeacherDashboardController::class)->name('dashboard.docente');
     Route::post('/sesiones', [ClassAttendanceController::class, 'start'])->name('teacher.sessions.start');
     Route::post('/verificaciones', [ClassAttendanceController::class, 'verify'])->name('teacher.verifications.store');
+    Route::post('/verificaciones/lista', [ClassAttendanceController::class, 'storeRoster'])->name('teacher.verifications.roster');
     Route::post('/sesiones/{classSession}/cerrar', [ClassAttendanceController::class, 'close'])->name('teacher.sessions.close');
 });
 
 Route::middleware('role:viewer')->get('/dashboard/visualizacion', ViewerDashboardController::class)->name('dashboard.viewer');
+
+// ==============================================================================
+// SUITE "DISEÑOS ANTIGRAVITY" - Versión comercial modular independiente
+// ==============================================================================
+Route::prefix('disenos-antigravity')->name('antigravity.')->group(function (): void {
+    Route::get('/', [AntigravityDesignController::class, 'hub'])->name('hub');
+    Route::get('/login', [AntigravityDesignController::class, 'login'])->name('login');
+    Route::get('/login/rapido/{role}', [AntigravityDesignController::class, 'quickLogin'])->name('quick-login');
+    Route::get('/admin', [AntigravityDesignController::class, 'admin'])->name('admin');
+    Route::get('/admin/estudiantes', [AntigravityDesignController::class, 'students'])->name('admin.students');
+    Route::get('/admin/enrolamiento', [AntigravityDesignController::class, 'enrollment'])->name('admin.enrollment');
+    Route::get('/admin/dispositivos', [AntigravityDesignController::class, 'devices'])->name('admin.devices');
+    Route::get('/docente', [AntigravityDesignController::class, 'teacher'])->name('teacher');
+    Route::get('/superadmin', [AntigravityDesignController::class, 'superadmin'])->name('superadmin');
+    Route::get('/kiosco', [AntigravityDesignController::class, 'kiosk'])->name('kiosk');
+});

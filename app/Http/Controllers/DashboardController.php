@@ -35,7 +35,7 @@ class DashboardController extends Controller
 
     public function superadminPage(Request $request, string $page): View
     {
-        abort_unless(in_array($page, ['overview', 'devices', 'enrollment', 'students', 'courses', 'teachers', 'settings', 'attendance'], true), 404);
+        abort_unless(in_array($page, ['overview', 'devices', 'enrollment', 'students', 'courses', 'teachers', 'settings', 'attendance', 'reports'], true), 404);
 
         return $this->renderDashboard(
             $request->session()->get('user'),
@@ -51,7 +51,7 @@ class DashboardController extends Controller
 
     public function admin(Request $request, string $page = 'overview'): View
     {
-        abort_unless(in_array($page, ['overview', 'devices', 'enrollment', 'students', 'courses', 'teachers', 'settings', 'attendance'], true), 404);
+        abort_unless(in_array($page, ['overview', 'devices', 'enrollment', 'students', 'courses', 'teachers', 'settings', 'attendance', 'reports'], true), 404);
 
         $usuario = session('user');
         $isSchoolAdmin = ($usuario['role'] ?? null) === 'admin';
@@ -169,6 +169,11 @@ class DashboardController extends Controller
         $analysisDate = $request?->filled('date') ? Carbon::parse($request->string('date')->toString()) : today();
         $selectedSchoolId = $lockedSchoolId ?? ($request?->integer('school_id') ?: null);
         $selectedCourse = $request?->string('course')->toString() ?: null;
+        $attendanceStatus = $request?->string('attendance_status')->toString() ?: 'all';
+
+        if (! in_array($attendanceStatus, ['all', 'present', 'late', 'absent'], true)) {
+            $attendanceStatus = 'all';
+        }
 
         $studentQuery->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId));
         $attendanceQuery->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId));
@@ -187,6 +192,26 @@ class DashboardController extends Controller
         $absentToday = 0;
         $attendanceByCourse = collect();
         $weeklyTrend = collect();
+        $attendanceRoster = collect();
+        $attendanceRosterSummary = ['total' => 0, 'present' => 0, 'late' => 0, 'absent' => 0];
+        $attendanceCourses = collect();
+        $reportEndDate = $request?->filled('report_end') ? Carbon::parse($request->string('report_end')->toString()) : today();
+        $reportStartDate = $request?->filled('report_start') ? Carbon::parse($request->string('report_start')->toString()) : $reportEndDate->copy()->subDays(29);
+        $reportSummary = ['students' => 0, 'entries' => 0, 'late' => 0, 'excused' => 0];
+        $reportByCourse = collect();
+        $reportByDay = collect();
+        $reportRecords = collect();
+        $reportCourses = collect();
+        $reportGenderByCourse = collect();
+        $reportGenderTotals = ['female' => 0, 'male' => 0, 'unspecified' => 0, 'total' => 0];
+        $reportStudents = collect();
+        $selectedReportStudent = null;
+        $reportStudentSummary = ['attendance_days' => 0, 'late_days' => 0, 'days_without_entry' => 0];
+        $enrollmentSummary = ['active_readers' => 0, 'total_readers' => 0, 'today' => 0, 'pending' => 0];
+
+        if ($reportStartDate->greaterThan($reportEndDate)) {
+            [$reportStartDate, $reportEndDate] = [$reportEndDate, $reportStartDate];
+        }
 
         if ($activePage === 'overview') {
             $studentsTotal = (clone $studentQuery)->count();
@@ -234,12 +259,178 @@ class DashboardController extends Controller
             });
         }
 
+        if ($activePage === 'attendance') {
+            $attendanceCourses = Student::query()
+                ->where('is_active', true)
+                ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId))
+                ->when($cursosPermitidos !== null, fn ($query) => $query->whereIn('curso', $cursosPermitidos))
+                ->whereNotNull('curso')
+                ->where('curso', '!=', '')
+                ->distinct()
+                ->orderBy('curso')
+                ->pluck('curso');
+
+            $attendanceRoster = (clone $studentQuery)
+                ->with(['attendances' => fn ($query) => $query
+                    ->whereDate('fecha_hora', $analysisDate)
+                    ->where('tipo', 'Entrada')
+                    ->where('is_ignored', false)
+                    ->oldest('fecha_hora')])
+                ->orderBy('curso')
+                ->orderBy('nombre')
+                ->orderBy('apellido')
+                ->get()
+                ->map(function (Student $student): array {
+                    $entry = $student->attendances->first();
+                    $status = match (true) {
+                        $entry === null => 'absent',
+                        $entry->is_late => 'late',
+                        default => 'present',
+                    };
+
+                    return [
+                        'nombre' => "{$student->nombre} {$student->apellido}",
+                        'matricula' => $student->matricula,
+                        'curso' => $student->curso,
+                        'status' => $status,
+                        'hora' => $entry?->fecha_hora?->format('H:i'),
+                    ];
+                });
+
+            $attendanceRosterSummary = [
+                'total' => $attendanceRoster->count(),
+                'present' => $attendanceRoster->where('status', 'present')->count(),
+                'late' => $attendanceRoster->where('status', 'late')->count(),
+                'absent' => $attendanceRoster->where('status', 'absent')->count(),
+            ];
+
+            if ($attendanceStatus !== 'all') {
+                $attendanceRoster = $attendanceRoster->where('status', $attendanceStatus)->values();
+            }
+        }
+
+        if ($activePage === 'reports') {
+            $reportStudents = (clone $studentQuery)
+                ->orderBy('nombre')
+                ->orderBy('apellido')
+                ->get(['id', 'nombre', 'apellido', 'matricula', 'curso']);
+            $selectedReportStudent = $reportStudents->firstWhere('id', $request?->integer('report_student_id'));
+
+            if ($selectedReportStudent !== null) {
+                $studentQuery->whereKey($selectedReportStudent->id);
+                $attendanceQuery->where('student_id', $selectedReportStudent->id);
+            }
+
+            $reportCourses = Student::query()
+                ->where('is_active', true)
+                ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId))
+                ->when($cursosPermitidos !== null, fn ($query) => $query->whereIn('curso', $cursosPermitidos))
+                ->whereNotNull('curso')
+                ->where('curso', '!=', '')
+                ->distinct()
+                ->orderBy('curso')
+                ->pluck('curso');
+
+            $reportRecords = (clone $attendanceQuery)
+                ->whereBetween('fecha_hora', [
+                    $reportStartDate->copy()->startOfDay(),
+                    $reportEndDate->copy()->endOfDay(),
+                ])
+                ->with('student')
+                ->oldest('fecha_hora')
+                ->get();
+
+            $reportEntries = $reportRecords
+                ->where('tipo', 'Entrada')
+                ->unique(fn (Attendance $attendance): string => "{$attendance->student_id}|{$attendance->fecha_hora->toDateString()}")
+                ->values();
+
+            $reportSummary = [
+                'students' => (clone $studentQuery)->count(),
+                'entries' => $reportEntries->count(),
+                'late' => $reportEntries->where('is_late', true)->count(),
+                'excused' => $reportRecords->whereNotNull('excuse_type')->count(),
+            ];
+
+            if ($selectedReportStudent !== null) {
+                $expectedSchoolDays = collect(range(0, (int) $reportStartDate->diffInDays($reportEndDate)))
+                    ->map(fn (int $days): Carbon => $reportStartDate->copy()->addDays($days))
+                    ->filter(fn (Carbon $date): bool => $date->isWeekday())
+                    ->count();
+                $attendanceDays = $reportEntries->unique(fn (Attendance $attendance): string => $attendance->fecha_hora->toDateString())->count();
+
+                $reportStudentSummary = [
+                    'attendance_days' => $attendanceDays,
+                    'late_days' => $reportEntries->where('is_late', true)->count(),
+                    'days_without_entry' => max(0, $expectedSchoolDays - $attendanceDays),
+                ];
+            }
+
+            $reportGenderByCourse = (clone $studentQuery)
+                ->whereNotNull('curso')
+                ->where('curso', '!=', '')
+                ->get(['curso', 'sexo'])
+                ->groupBy('curso')
+                ->map(function ($students, string $course): array {
+                    return [
+                        'course' => $course,
+                        'female' => $students->where('sexo', 'Femenino')->count(),
+                        'male' => $students->where('sexo', 'Masculino')->count(),
+                        'unspecified' => $students->whereNull('sexo')->count(),
+                        'total' => $students->count(),
+                    ];
+                })
+                ->sortBy('course')
+                ->values();
+            $reportGenderTotals = [
+                'female' => $reportGenderByCourse->sum('female'),
+                'male' => $reportGenderByCourse->sum('male'),
+                'unspecified' => $reportGenderByCourse->sum('unspecified'),
+                'total' => $reportGenderByCourse->sum('total'),
+            ];
+
+            $reportByCourse = (clone $studentQuery)
+                ->whereNotNull('curso')
+                ->where('curso', '!=', '')
+                ->get()
+                ->groupBy('curso')
+                ->map(function ($students, string $course) use ($reportEntries): array {
+                    $courseEntries = $reportEntries->where('curso', $course);
+
+                    return [
+                        'course' => $course,
+                        'students' => $students->count(),
+                        'entries' => $courseEntries->count(),
+                        'late' => $courseEntries->where('is_late', true)->count(),
+                        'on_time_percentage' => $courseEntries->isEmpty()
+                            ? 0
+                            : round(($courseEntries->where('is_late', false)->count() / $courseEntries->count()) * 100, 1),
+                    ];
+                })
+                ->sortBy('course')
+                ->values();
+
+            $reportByDay = $reportEntries
+                ->groupBy(fn (Attendance $attendance): string => $attendance->fecha_hora->toDateString())
+                ->map(function ($entries, string $date): array {
+                    return [
+                        'date' => Carbon::parse($date),
+                        'entries' => $entries->count(),
+                        'late' => $entries->where('is_late', true)->count(),
+                    ];
+                })
+                ->sortByDesc('date')
+                ->values();
+
+            $reportRecords = $reportRecords->sortByDesc('fecha_hora')->take(100)->values();
+        }
+
         $recentRecords = in_array($activePage, ['overview', 'attendance'], true)
             ? (clone $attendanceQuery)
                 ->whereDate('fecha_hora', $analysisDate)
                 ->with('student')
                 ->latest('fecha_hora')
-                ->take(12)
+                ->when($activePage === 'overview', fn ($query) => $query->limit(12))
                 ->get()
                 ->map(function (Attendance $attendance): array {
                     return [
@@ -327,7 +518,11 @@ class DashboardController extends Controller
                 ->withQueryString();
         } else {
             $students = in_array($activePage, ['students', 'enrollment'], true)
-                ? (clone $studentQuery)->with('school')->orderBy('nombre')->orderBy('apellido')->get()
+                ? (clone $studentQuery)
+                    ->with(['school', 'enrollments'])
+                    ->orderBy('nombre')
+                    ->orderBy('apellido')
+                    ->get()
                 : collect();
         }
         $allCourses = in_array($activePage, ['overview', 'students', 'courses', 'teachers'], true)
@@ -351,6 +546,20 @@ class DashboardController extends Controller
             ->latest()
             ->take(12)
             ->get() : collect();
+        if ($activePage === 'enrollment') {
+            $enrollmentSummary = [
+                'active_readers' => $devices->filter(fn (BiometricDevice $device): bool => $device->connectionStatus() === 'online')->count(),
+                'total_readers' => $devices->where('is_active', true)->count(),
+                'today' => BiometricEnrollment::query()
+                    ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->whereHas('device', fn ($deviceQuery) => $deviceQuery->where('school_id', $schoolId)))
+                    ->whereDate('created_at', today())
+                    ->count(),
+                'pending' => BiometricEnrollment::query()
+                    ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->whereHas('device', fn ($deviceQuery) => $deviceQuery->where('school_id', $schoolId)))
+                    ->whereIn('status', ['pending', 'processing'])
+                    ->count(),
+            ];
+        }
         $shareSchool = $activePage === 'overview' && $selectedSchoolId
             ? $schools->firstWhere('id', $selectedSchoolId)
             : null;
@@ -376,6 +585,7 @@ class DashboardController extends Controller
             'analysisDate' => $analysisDate,
             'selectedSchoolId' => $selectedSchoolId,
             'selectedCourse' => $selectedCourse,
+            'attendanceStatus' => $attendanceStatus,
             'resumen' => [
                 'total_estudiantes' => $studentsTotal,
                 'presentes_hoy' => $presentToday,
@@ -386,6 +596,22 @@ class DashboardController extends Controller
             'asistenciaPorCurso' => $attendanceByCourse,
             'tendenciaSemanal' => $weeklyTrend,
             'ultimosRegistros' => $recentRecords,
+            'attendanceRoster' => $attendanceRoster,
+            'attendanceRosterSummary' => $attendanceRosterSummary,
+            'attendanceCourses' => $attendanceCourses,
+            'reportStartDate' => $reportStartDate,
+            'reportEndDate' => $reportEndDate,
+            'reportSummary' => $reportSummary,
+            'reportByCourse' => $reportByCourse,
+            'reportByDay' => $reportByDay,
+            'reportRecords' => $reportRecords,
+            'reportCourses' => $reportCourses,
+            'reportGenderByCourse' => $reportGenderByCourse,
+            'reportGenderTotals' => $reportGenderTotals,
+            'reportStudents' => $reportStudents,
+            'selectedReportStudent' => $selectedReportStudent,
+            'reportStudentSummary' => $reportStudentSummary,
+            'enrollmentSummary' => $enrollmentSummary,
             'schools' => $schools,
             'devices' => $devices,
             'deviceSummary' => $deviceSummary,

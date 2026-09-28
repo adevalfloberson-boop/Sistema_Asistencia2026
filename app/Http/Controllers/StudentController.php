@@ -56,6 +56,7 @@ class StudentController extends Controller
             'matricula' => ['required', 'string', 'max:255', Rule::unique('students')->ignore($student)],
             'nombre' => ['required', 'string', 'max:255'],
             'apellido' => ['required', 'string', 'max:255'],
+            'sexo' => ['nullable', Rule::in(['Femenino', 'Masculino'])],
             'father_email' => ['nullable', 'email', 'max:255'],
             'mother_email' => ['nullable', 'email', 'max:255'],
             'numero_lista' => [

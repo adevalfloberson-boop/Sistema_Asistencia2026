@@ -1,5 +1,8 @@
 <?php
 
+use App\Models\Attendance;
+use App\Models\BiometricDevice;
+use App\Models\BiometricEnrollment;
 use App\Models\Course;
 use App\Models\School;
 use App\Models\Student;
@@ -57,6 +60,121 @@ test('live activity console is rendered only on its dedicated page', function ()
         ->assertSee('Operación en tiempo real');
 });
 
+test('biometric enrollment is presented as a guided flow with real person status', function () {
+    $school = School::query()->create(['code' => 'BIO001', 'name' => 'Escuela Biométrica']);
+    $admin = User::factory()->create(['school_id' => $school->id, 'role' => 'admin']);
+    $student = Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'BIO-001',
+        'nombre' => 'Adrián',
+        'apellido' => 'Peralta Gil',
+        'curso' => '2.º Secundaria A',
+        'id_lector' => '1023',
+        'face_sync_status' => 'pending',
+    ]);
+    $device = BiometricDevice::query()->create([
+        'school_id' => $school->id,
+        'key' => 'lector-biometrico',
+        'name' => 'Lector principal',
+        'connection_mode' => 'adms',
+        'serial_number' => 'BIO-DEVICE-001',
+        'is_active' => true,
+    ]);
+    BiometricEnrollment::query()->create([
+        'biometric_device_id' => $device->id,
+        'student_id' => $student->id,
+        'user_id' => $student->id_lector,
+        'finger_index' => 1,
+        'status' => 'enrolled',
+        'enrolled_at' => now(),
+    ]);
+
+    $response = $this->withSession(['user' => [
+        'id' => $admin->id,
+        'username' => $admin->username,
+        'role' => 'admin',
+        'school_id' => $school->id,
+        'institution_code' => $school->code,
+    ]])->get(route('dashboard.admin.page', 'enrollment'));
+
+    $response->assertOk()
+        ->assertSee('data-biometric-enrollment', escape: false)
+        ->assertSee('Registro biométrico')
+        ->assertSee('Nombre, matrícula o ID biométrico...')
+        ->assertSee('data-student-fingers="1"', escape: false)
+        ->assertSee('data-student-face-status="pending"', escape: false)
+        ->assertSee(route('devices.enroll'), escape: false)
+        ->assertSee(route('devices.enroll-face'), escape: false)
+        ->assertSee('Actividad reciente');
+});
+
+test('live activity shows every daily record and filters the roster by course and status', function () {
+    Carbon::setTestNow('2026-09-28 09:00:00');
+    $school = School::query()->create(['code' => 'FILTER001', 'name' => 'Escuela con Filtros']);
+    $admin = User::factory()->create(['school_id' => $school->id, 'role' => 'admin']);
+    $session = ['user' => [
+        'id' => $admin->id,
+        'username' => $admin->username,
+        'role' => 'admin',
+        'school_id' => $school->id,
+        'institution_code' => $school->code,
+    ]];
+
+    foreach (range(1, 14) as $index) {
+        $student = Student::query()->create([
+            'school_id' => $school->id,
+            'matricula' => "CURSO-A-{$index}",
+            'nombre' => "Estudiante {$index}",
+            'apellido' => 'Curso A',
+            'curso' => '1ro A',
+            'id_lector' => "A-{$index}",
+        ]);
+
+        if ($index < 14) {
+            Attendance::query()->create([
+                'school_id' => $school->id,
+                'student_id' => $student->id,
+                'matricula' => $student->matricula,
+                'id_lector' => $student->id_lector,
+                'fecha_hora' => now()->subMinutes($index),
+                'curso' => $student->curso,
+                'estado' => $index === 13 ? 'Tarde' : 'A tiempo',
+                'tipo' => 'Entrada',
+                'is_late' => $index === 13,
+            ]);
+        }
+    }
+
+    Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'CURSO-B-1',
+        'nombre' => 'Estudiante de otro curso',
+        'apellido' => 'Curso B',
+        'curso' => '2do B',
+        'id_lector' => 'B-1',
+    ]);
+
+    $response = $this->withSession($session)->get(route('dashboard.admin.page', [
+        'page' => 'attendance',
+        'course' => '1ro A',
+        'attendance_status' => 'absent',
+    ]));
+
+    $response->assertOk()
+        ->assertSee('13 registros')
+        ->assertSee('Estudiante 14 Curso A')
+        ->assertSee('data-attendance-roster-status="absent"', escape: false)
+        ->assertViewHas('attendanceRosterSummary', fn (array $summary): bool => $summary === [
+            'total' => 14,
+            'present' => 12,
+            'late' => 1,
+            'absent' => 1,
+        ])
+        ->assertViewHas('attendanceRoster', fn ($roster): bool => $roster->count() === 1 && $roster->first()['status'] === 'absent');
+
+    Carbon::setTestNow();
+});
+
 test('attendance dashboard does not expose raw adms events', function () {
     $school = School::query()->create(['code' => 'ADMS001', 'name' => 'Escuela ADMS']);
     $admin = User::factory()->create(['role' => 'superadmin', 'username' => 'admin-adms']);
@@ -70,6 +188,101 @@ test('attendance dashboard does not expose raw adms events', function () {
         ->assertOk()
         ->assertSee('Actividad en vivo')
         ->assertDontSee('Eventos ADMS sin filtrar');
+});
+
+test('reports navigation opens a dedicated filterable dashboard', function () {
+    Carbon::setTestNow('2026-09-28 10:00:00');
+    $school = School::query()->create(['code' => 'REPORT001', 'name' => 'Escuela de Reportes']);
+    $admin = User::factory()->create(['school_id' => $school->id, 'role' => 'admin']);
+    $student = Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'REP-001',
+        'nombre' => 'Ana',
+        'apellido' => 'Reporte',
+        'sexo' => 'Femenino',
+        'curso' => '3ro A',
+        'id_lector' => 'REP-1',
+    ]);
+    Attendance::query()->create([
+        'school_id' => $school->id,
+        'student_id' => $student->id,
+        'matricula' => $student->matricula,
+        'id_lector' => $student->id_lector,
+        'fecha_hora' => now(),
+        'curso' => $student->curso,
+        'estado' => 'Tarde',
+        'tipo' => 'Entrada',
+        'is_late' => true,
+    ]);
+    Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'REP-002',
+        'nombre' => 'Luis',
+        'apellido' => 'Reporte',
+        'sexo' => 'Masculino',
+        'curso' => '3ro A',
+        'id_lector' => 'REP-2',
+    ]);
+    Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'REP-003',
+        'nombre' => 'Alex',
+        'apellido' => 'Sin especificar',
+        'curso' => '3ro A',
+        'id_lector' => 'REP-3',
+    ]);
+
+    $response = $this->withSession(['user' => [
+        'id' => $admin->id,
+        'username' => $admin->username,
+        'role' => 'admin',
+        'school_id' => $school->id,
+        'institution_code' => $school->code,
+    ]])->get(route('dashboard.admin.page', [
+        'page' => 'reports',
+        'report_start' => '2026-09-01',
+        'report_end' => '2026-09-30',
+        'course' => '3ro A',
+    ]));
+
+    $response->assertOk()
+        ->assertSee('data-reports-dashboard', escape: false)
+        ->assertSee('Reportes de asistencia')
+        ->assertSee('Femenino y masculino por curso')
+        ->assertSee('Total general: 3')
+        ->assertSee('Ana Reporte')
+        ->assertViewHas('activePage', 'reports')
+        ->assertViewHas('reportSummary', fn (array $summary): bool => $summary['entries'] === 1 && $summary['late'] === 1)
+        ->assertViewHas('reportGenderTotals', fn (array $totals): bool => $totals === [
+            'female' => 1,
+            'male' => 1,
+            'unspecified' => 1,
+            'total' => 3,
+        ]);
+
+    $individualResponse = $this->withSession(['user' => [
+        'id' => $admin->id,
+        'username' => $admin->username,
+        'role' => 'admin',
+        'school_id' => $school->id,
+        'institution_code' => $school->code,
+    ]])->get(route('dashboard.admin.page', [
+        'page' => 'reports',
+        'report_start' => '2026-09-01',
+        'report_end' => '2026-09-30',
+        'report_student_id' => $student->id,
+    ]));
+
+    $individualResponse->assertOk()
+        ->assertSee('data-report-student-search', escape: false)
+        ->assertSee('data-individual-student-report', escape: false)
+        ->assertSee('Reporte individual de asistencia')
+        ->assertViewHas('selectedReportStudent', fn (?Student $selected): bool => $selected?->is($student) === true)
+        ->assertViewHas('reportStudentSummary', fn (array $summary): bool => $summary['attendance_days'] === 1
+            && $summary['late_days'] === 1
+            && $summary['days_without_entry'] > 0);
+
+    Carbon::setTestNow();
 });
 
 test('teacher dashboard redirects to login when there is no session', function () {

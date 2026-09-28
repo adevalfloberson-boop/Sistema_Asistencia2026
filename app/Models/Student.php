@@ -14,6 +14,7 @@ class Student extends Model
         'matricula',
         'nombre',
         'apellido',
+        'sexo',
         'father_email',
         'mother_email',
         'numero_lista',

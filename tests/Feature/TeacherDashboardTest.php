@@ -110,7 +110,7 @@ test('teacher can report a student who is on campus but absent from class', func
     ]);
 });
 
-test('teacher sees the four quick verification buttons during an open class', function () {
+test('teacher sees the three direct verification buttons during an open class', function () {
     ['school' => $school, 'teacher' => $teacher, 'course' => $course] = teacherPanelFixture();
 
     ClassSession::query()->create([
@@ -125,10 +125,10 @@ test('teacher sees the four quick verification buttons during an open class', fu
         ->get(route('dashboard.docente', ['course' => $course->id]))
         ->assertOk()
         ->assertSee('Presente')
-        ->assertSee('Tarde')
+        ->assertSee('Tardanza')
         ->assertSee('Ausente')
-        ->assertSee('Excusa')
-        ->assertSee('Agregar observación')
+        ->assertDontSee('Excusa')
+        ->assertDontSee('Agregar observación')
         ->assertDontSee('Seleccionar estado');
 });
 
@@ -153,4 +153,69 @@ test('teacher cannot label a student as on campus when there is no active entry'
         ->assertSessionHasErrors('status');
 
     $this->assertDatabaseCount('class_attendance_verifications', 0);
+});
+
+test('teacher saves the class roster in one operation and closes the session', function () {
+    ['school' => $school, 'teacher' => $teacher, 'course' => $course, 'student' => $student] = teacherPanelFixture();
+    $secondStudent = Student::query()->create([
+        'school_id' => $school->id,
+        'course_id' => $course->id,
+        'matricula' => 'MAT-101',
+        'nombre' => 'María',
+        'apellido' => 'Pérez',
+        'curso' => $course->name,
+        'id_lector' => '6',
+        'is_active' => true,
+    ]);
+    $classSession = ClassSession::query()->create([
+        'course_id' => $course->id,
+        'teacher_id' => $teacher->id,
+        'scheduled_at' => now(),
+        'started_at' => now(),
+        'status' => 'open',
+    ]);
+
+    $this->withSession(teacherPanelSession($teacher, $school))
+        ->post(route('teacher.verifications.roster'), [
+            'class_session_id' => $classSession->id,
+            'attendance' => [
+                $student->id => 'present',
+                $secondStudent->id => 'absent',
+            ],
+        ])
+        ->assertRedirect(route('dashboard.docente', [
+            'course' => $course->id,
+            'date' => $classSession->scheduled_at->toDateString(),
+        ]));
+
+    $this->assertDatabaseHas('class_attendance_verifications', [
+        'student_id' => $student->id,
+        'status' => ClassAttendanceVerification::StatusPresent,
+    ]);
+    $this->assertDatabaseHas('class_attendance_verifications', [
+        'student_id' => $secondStudent->id,
+        'status' => ClassAttendanceVerification::StatusAbsentCampus,
+    ]);
+    expect($classSession->fresh()->status)->toBe('closed');
+});
+
+test('teacher roster only offers the three direct attendance states', function () {
+    ['school' => $school, 'teacher' => $teacher, 'course' => $course] = teacherPanelFixture();
+
+    ClassSession::query()->create([
+        'course_id' => $course->id,
+        'teacher_id' => $teacher->id,
+        'scheduled_at' => now(),
+        'started_at' => now(),
+        'status' => 'open',
+    ]);
+
+    $this->withSession(teacherPanelSession($teacher, $school))
+        ->get(route('dashboard.docente', ['course' => $course->id]))
+        ->assertOk()
+        ->assertSee('Marcar todos presentes')
+        ->assertSee('Guardar asistencia')
+        ->assertSee('Pendientes')
+        ->assertDontSee('Agregar observación')
+        ->assertDontSee('Asignatura (opcional)');
 });
