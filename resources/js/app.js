@@ -350,6 +350,41 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    const initializeGeneratedReports = () => {
+        const form = document.querySelector('[data-report-presets]');
+        const dialog = document.querySelector('[data-generated-report-dialog]');
+
+        if (form && form.dataset.reportPresetsInitialized !== 'true') {
+            form.dataset.reportPresetsInitialized = 'true';
+            form.querySelector('[data-save-report-preset]')?.addEventListener('click', (event) => {
+                const values = Object.fromEntries(new FormData(form).entries());
+                delete values.show_report;
+                localStorage.setItem('school-attendance-report-preset', JSON.stringify(values));
+                event.currentTarget.textContent = 'Filtros guardados';
+                window.setTimeout(() => { event.currentTarget.textContent = 'Guardar filtros'; }, 1600);
+            });
+            form.querySelector('[data-load-report-preset]')?.addEventListener('click', () => {
+                const saved = JSON.parse(localStorage.getItem('school-attendance-report-preset') || '{}');
+                Object.entries(saved).forEach(([name, value]) => {
+                    const field = form.elements.namedItem(name);
+
+                    if (field && typeof value === 'string') {
+                        field.value = value;
+                    }
+                });
+            });
+        }
+
+        if (dialog && dialog.dataset.reportInitialized !== 'true') {
+            dialog.dataset.reportInitialized = 'true';
+            dialog.querySelector('[data-print-report]')?.addEventListener('click', () => window.print());
+
+            if (dialog.hasAttribute('data-report-autopen')) {
+                dialog.showModal();
+            }
+        }
+    };
+
     const initializeOverviewRosterFilters = () => {
         document.querySelectorAll('[data-overview-roster]').forEach((container) => {
             if (container.dataset.initialized === 'true') {
@@ -436,6 +471,7 @@ document.addEventListener('DOMContentLoaded', () => {
     applyDeviceConsoleState();
     initializeBiometricEnrollment();
     initializeReportStudentSearch();
+    initializeGeneratedReports();
     initializeOverviewRosterFilters();
 
     const adminPanel = document.querySelector('[data-admin-async-panel]');
@@ -524,6 +560,7 @@ document.addEventListener('DOMContentLoaded', () => {
             applyDeviceConsoleState();
             initializeBiometricEnrollment();
             initializeReportStudentSearch();
+            initializeGeneratedReports();
             initializeOverviewRosterFilters();
 
             const currentSidebarSummary = document.querySelector('[data-admin-sidebar-summary]');

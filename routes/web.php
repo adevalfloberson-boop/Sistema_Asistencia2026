@@ -3,6 +3,7 @@
 use App\Http\Controllers\AdmsController;
 use App\Http\Controllers\AntigravityDesignController;
 use App\Http\Controllers\AttendanceExcuseController;
+use App\Http\Controllers\AttendanceReportExportController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\BiometricAgentController;
 use App\Http\Controllers\ClassAttendanceController;
@@ -75,6 +76,7 @@ Route::middleware(['role:superadmin,admin'])->prefix('dashboard/admin')->group(f
     Route::get('/{page}', [DashboardController::class, 'admin'])
         ->whereIn('page', ['overview', 'devices', 'enrollment', 'students', 'courses', 'teachers', 'settings', 'attendance', 'reports'])
         ->name('dashboard.admin.page');
+    Route::get('/reportes/exportar/excel', AttendanceReportExportController::class)->name('reports.export');
 
     Route::middleware('school-administration')->group(function (): void {
         Route::post('/estudiantes', [StudentController::class, 'store'])->name('students.store');

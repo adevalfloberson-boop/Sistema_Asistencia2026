@@ -30,3 +30,34 @@ body {
     background: #99f6e4;
     color: #042f2e;
 }
+
+@media print {
+    body * {
+        visibility: hidden;
+    }
+
+    [data-generated-report-dialog],
+    [data-generated-report-dialog] * {
+        visibility: visible;
+    }
+
+    [data-generated-report-dialog] {
+        position: absolute;
+        inset: 0;
+        width: 100%;
+        max-height: none;
+        overflow: visible;
+        background: white;
+        color: #0f172a;
+    }
+
+    [data-generated-report-dialog] > header button,
+    [data-generated-report-dialog] > header a {
+        display: none;
+    }
+
+    [data-printable-report] {
+        max-height: none;
+        overflow: visible;
+    }
+}

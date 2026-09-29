@@ -6,6 +6,8 @@ use App\Models\Attendance;
 use App\Models\AttendanceNotification;
 use App\Models\BiometricDevice;
 use App\Models\BiometricEnrollment;
+use App\Models\ClassAttendanceVerification;
+use App\Models\ClassSession;
 use App\Models\Course;
 use App\Models\DeviceCommand;
 use App\Models\School;
@@ -212,6 +214,20 @@ class DashboardController extends Controller
         $reportStudents = collect();
         $selectedReportStudent = null;
         $reportStudentSummary = ['attendance_days' => 0, 'late_days' => 0, 'days_without_entry' => 0];
+        $reportType = $request?->string('report_type')->toString() ?: 'general';
+        $reportStatus = $request?->string('report_status')->toString() ?: 'all';
+        $reportSex = $request?->string('report_sex')->toString() ?: 'all';
+        $reportArea = $request?->string('report_area')->toString() ?: '';
+        $reportRiskThreshold = max(1, min(100, $request?->integer('report_risk_threshold', 80) ?? 80));
+        $reportAreas = collect();
+        $reportClassSummary = ['sessions' => 0, 'present' => 0, 'late' => 0, 'excused' => 0, 'absent' => 0, 'open_sessions' => 0];
+        $reportClassCourses = collect();
+        $reportStudentRows = collect();
+        $reportStudentClassHistory = collect();
+        $reportRiskStudents = collect();
+        $reportIncompleteSessions = collect();
+        $reportPreviousSummary = ['sessions' => 0, 'attendance_percentage' => 0.0];
+        $reportNumber = 'REP-'.now()->format('Ymd').'-'.strtoupper(substr(sha1((string) $request?->getQueryString()), 0, 6));
         $enrollmentSummary = ['active_readers' => 0, 'total_readers' => 0, 'today' => 0, 'pending' => 0];
         $internshipStudents = collect();
         $internshipCourses = collect();
@@ -355,10 +371,45 @@ class DashboardController extends Controller
         }
 
         if ($activePage === 'reports') {
+            if (! in_array($reportType, ['general', 'course', 'student', 'history'], true)) {
+                $reportType = 'general';
+            }
+
+            if (! in_array($reportStatus, ['all', 'present', 'late', 'excused', 'absent'], true)) {
+                $reportStatus = 'all';
+            }
+
+            if (! in_array($reportSex, ['all', 'Femenino', 'Masculino', 'Sin especificar'], true)) {
+                $reportSex = 'all';
+            }
+
+            $reportAreas = Course::query()
+                ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId))
+                ->whereNotNull('area')
+                ->where('area', '!=', '')
+                ->distinct()
+                ->orderBy('area')
+                ->pluck('area');
+
+            if ($reportArea !== '') {
+                $areaCourseNames = Course::query()
+                    ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId))
+                    ->where('area', $reportArea)
+                    ->pluck('name');
+                $studentQuery->whereIn('curso', $areaCourseNames);
+                $attendanceQuery->whereIn('curso', $areaCourseNames);
+            }
+
+            match ($reportSex) {
+                'Femenino', 'Masculino' => $studentQuery->where('sexo', $reportSex),
+                'Sin especificar' => $studentQuery->whereNull('sexo'),
+                default => null,
+            };
+
             $reportStudents = (clone $studentQuery)
                 ->orderBy('nombre')
                 ->orderBy('apellido')
-                ->get(['id', 'nombre', 'apellido', 'matricula', 'curso']);
+                ->get(['id', 'course_id', 'nombre', 'apellido', 'matricula', 'curso', 'sexo']);
             $selectedReportStudent = $reportStudents->firstWhere('id', $request?->integer('report_student_id'));
 
             if ($selectedReportStudent !== null) {
@@ -468,6 +519,116 @@ class DashboardController extends Controller
                 ->values();
 
             $reportRecords = $reportRecords->sortByDesc('fecha_hora')->take(100)->values();
+
+            $reportCourseModels = Course::query()
+                ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId))
+                ->when($selectedCourse, fn ($query, string $course) => $query->where('name', $course))
+                ->when($reportArea !== '', fn ($query) => $query->where('area', $reportArea))
+                ->get();
+            $reportClassSessions = ClassSession::query()
+                ->with(['course', 'teacher', 'verifications.student'])
+                ->whereIn('course_id', $reportCourseModels->modelKeys())
+                ->whereBetween('scheduled_at', [$reportStartDate->copy()->startOfDay(), $reportEndDate->copy()->endOfDay()])
+                ->oldest('scheduled_at')
+                ->get();
+            $classVerifications = $reportClassSessions->flatMap->verifications;
+            $reportClassSummary = [
+                'sessions' => $reportClassSessions->count(),
+                'present' => $classVerifications->where('status', ClassAttendanceVerification::StatusPresent)->count(),
+                'late' => $classVerifications->where('status', ClassAttendanceVerification::StatusLate)->count(),
+                'excused' => $classVerifications->where('status', ClassAttendanceVerification::StatusExcused)->count(),
+                'absent' => $classVerifications->whereIn('status', [ClassAttendanceVerification::StatusCampusAbsentClass, ClassAttendanceVerification::StatusAbsentCampus])->count(),
+                'open_sessions' => $reportClassSessions->where('status', 'open')->count(),
+            ];
+            $reportIncompleteSessions = $reportClassSessions->where('status', 'open')->values();
+
+            $studentsForClassReport = (clone $studentQuery)
+                ->orderBy('curso')
+                ->orderBy('apellido')
+                ->orderBy('nombre')
+                ->get();
+            $verificationsByStudent = $classVerifications->groupBy('student_id');
+            $sessionsByCourse = $reportClassSessions->groupBy('course_id');
+            if ($selectedReportStudent !== null) {
+                $studentVerificationsBySession = $verificationsByStudent->get($selectedReportStudent->id, collect())->keyBy('class_session_id');
+                $reportStudentClassHistory = $reportClassSessions
+                    ->where('course_id', $selectedReportStudent->course_id)
+                    ->map(function (ClassSession $session) use ($studentVerificationsBySession): array {
+                        $verification = $studentVerificationsBySession->get($session->id);
+
+                        return [
+                            'date' => $session->scheduled_at,
+                            'subject' => $session->subject ?: 'Asistencia del curso',
+                            'teacher' => $session->teacher?->name ?: 'Docente',
+                            'status' => match ($verification?->status) {
+                                ClassAttendanceVerification::StatusPresent => 'P',
+                                ClassAttendanceVerification::StatusLate => 'T',
+                                ClassAttendanceVerification::StatusExcused => 'E',
+                                ClassAttendanceVerification::StatusCampusAbsentClass,
+                                ClassAttendanceVerification::StatusAbsentCampus => 'A',
+                                default => '—',
+                            },
+                            'updated_at' => $verification?->updated_at,
+                        ];
+                    })
+                    ->values();
+            }
+            $reportStudentRows = $studentsForClassReport->map(function (Student $student) use ($sessionsByCourse, $verificationsByStudent): array {
+                $statuses = $verificationsByStudent->get($student->id, collect())->pluck('status');
+                $sessionCount = $sessionsByCourse->get($student->course_id, collect())->count();
+                $present = $statuses->filter(fn (string $status): bool => $status === ClassAttendanceVerification::StatusPresent)->count();
+                $late = $statuses->filter(fn (string $status): bool => $status === ClassAttendanceVerification::StatusLate)->count();
+                $excused = $statuses->filter(fn (string $status): bool => $status === ClassAttendanceVerification::StatusExcused)->count();
+                $absent = $statuses->filter(fn (string $status): bool => in_array($status, [ClassAttendanceVerification::StatusCampusAbsentClass, ClassAttendanceVerification::StatusAbsentCampus], true))->count();
+                $equivalentAbsences = $absent + intdiv($late, 3) + intdiv($excused, 3);
+                $credited = max(0, $sessionCount - $equivalentAbsences);
+                $percentage = $sessionCount === 0 ? 0.0 : round(($credited / $sessionCount) * 100, 2);
+
+                return compact('student', 'sessionCount', 'present', 'late', 'excused', 'absent', 'equivalentAbsences', 'credited', 'percentage');
+            });
+
+            if ($reportStatus !== 'all') {
+                $statusKey = ['present' => 'present', 'late' => 'late', 'excused' => 'excused', 'absent' => 'absent'][$reportStatus];
+                $reportStudentRows = $reportStudentRows->filter(fn (array $row): bool => $row[$statusKey] > 0)->values();
+            }
+
+            $reportRiskStudents = $reportStudentRows
+                ->filter(fn (array $row): bool => $row['sessionCount'] > 0 && $row['percentage'] < $reportRiskThreshold)
+                ->sortBy('percentage')
+                ->values();
+            $reportClassCourses = $reportCourseModels->map(function (Course $course) use ($reportClassSessions, $classVerifications): array {
+                $sessions = $reportClassSessions->where('course_id', $course->id);
+                $sessionIds = $sessions->pluck('id');
+                $verifications = $classVerifications->whereIn('class_session_id', $sessionIds);
+                $classified = $verifications->count();
+                $present = $verifications->whereIn('status', [ClassAttendanceVerification::StatusPresent, ClassAttendanceVerification::StatusLate])->count();
+
+                return [
+                    'course' => $course,
+                    'sessions' => $sessions->count(),
+                    'students' => $course->students()->where('is_active', true)->count(),
+                    'present' => $present,
+                    'late' => $verifications->where('status', ClassAttendanceVerification::StatusLate)->count(),
+                    'absent' => $verifications->whereIn('status', [ClassAttendanceVerification::StatusCampusAbsentClass, ClassAttendanceVerification::StatusAbsentCampus])->count(),
+                    'percentage' => $classified === 0 ? 0.0 : round(($present / $classified) * 100, 1),
+                ];
+            })->sortBy(fn (array $row): string => $row['course']->name)->values();
+
+            $periodDays = (int) $reportStartDate->diffInDays($reportEndDate) + 1;
+            $previousEnd = $reportStartDate->copy()->subDay()->endOfDay();
+            $previousStart = $previousEnd->copy()->subDays($periodDays - 1)->startOfDay();
+            $previousSessions = ClassSession::query()
+                ->with('verifications')
+                ->whereIn('course_id', $reportCourseModels->modelKeys())
+                ->whereBetween('scheduled_at', [$previousStart, $previousEnd])
+                ->get();
+            $previousVerifications = $previousSessions->flatMap->verifications;
+            $previousClassified = $previousVerifications->count();
+            $previousPresent = $previousVerifications->whereIn('status', [ClassAttendanceVerification::StatusPresent, ClassAttendanceVerification::StatusLate])->count();
+            $reportPreviousSummary = [
+                'sessions' => $previousSessions->count(),
+                'attendance_percentage' => $previousClassified === 0 ? 0.0 : round(($previousPresent / $previousClassified) * 100, 1),
+            ];
         }
 
         $recentRecords = in_array($activePage, ['overview', 'attendance'], true)
@@ -676,6 +837,20 @@ class DashboardController extends Controller
             'reportStudents' => $reportStudents,
             'selectedReportStudent' => $selectedReportStudent,
             'reportStudentSummary' => $reportStudentSummary,
+            'reportType' => $reportType,
+            'reportStatus' => $reportStatus,
+            'reportSex' => $reportSex,
+            'reportArea' => $reportArea,
+            'reportRiskThreshold' => $reportRiskThreshold,
+            'reportAreas' => $reportAreas,
+            'reportClassSummary' => $reportClassSummary,
+            'reportClassCourses' => $reportClassCourses,
+            'reportStudentRows' => $reportStudentRows,
+            'reportStudentClassHistory' => $reportStudentClassHistory,
+            'reportRiskStudents' => $reportRiskStudents,
+            'reportIncompleteSessions' => $reportIncompleteSessions,
+            'reportPreviousSummary' => $reportPreviousSummary,
+            'reportNumber' => $reportNumber,
             'enrollmentSummary' => $enrollmentSummary,
             'schools' => $schools,
             'devices' => $devices,
