@@ -3,8 +3,10 @@
 namespace App\Http\Controllers;
 
 use App\Models\Attendance;
+use App\Models\Course;
 use App\Models\School;
 use App\Models\Student;
+use App\Models\StudentAttendanceException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Collection;
@@ -56,33 +58,61 @@ class PublicDashboardController extends Controller
     }
 
     /**
-     * @return array{summary: array<string, int|float>, records: Collection<int, array<string, mixed>>, courses: Collection<int, array<string, int|float>>}
+     * @return array{summary: array<string, int|float>, records: Collection<int, array<string, mixed>>, courses: Collection<int, array<string, int|float>>, rosters: array<string, Collection<int, array<string, mixed>>>}
      */
     private function dashboardData(School $school): array
     {
-        $students = Student::query()->where('school_id', $school->id)->where('is_active', true);
+        $students = Student::query()
+            ->where('school_id', $school->id)
+            ->where('is_active', true)
+            ->orderBy('curso')
+            ->orderBy('nombre')
+            ->orderBy('apellido')
+            ->get(['id', 'nombre', 'apellido', 'matricula', 'curso', 'sexo']);
         $attendances = Attendance::query()
             ->where('school_id', $school->id)
             ->where('is_ignored', false)
             ->whereDate('fecha_hora', today());
-        $total = (clone $students)->count();
-        $present = (clone $attendances)->where('tipo', 'Entrada')->distinct()->count('student_id');
-        $late = (clone $attendances)->where('tipo', 'Entrada')->where('is_late', true)->distinct()->count('student_id');
+        $presentStudentIds = (clone $attendances)->where('tipo', 'Entrada')->distinct()->pluck('student_id');
+        $lateStudentIds = (clone $attendances)->where('tipo', 'Entrada')->where('is_late', true)->distinct()->pluck('student_id');
+        $presentStudents = $students->whereIn('id', $presentStudentIds)->values();
+        $lateStudents = $students->whereIn('id', $lateStudentIds)->values();
+        $internshipCourseNames = Course::query()
+            ->where('school_id', $school->id)
+            ->where('internship_weekday', today()->isoWeekday())
+            ->pluck('name');
+        $excusedStudentIds = StudentAttendanceException::query()
+            ->whereDate('date', today())
+            ->whereHas('student', fn ($query) => $query->where('school_id', $school->id))
+            ->pluck('student_id');
+        $absentStudents = $students
+            ->whereNotIn('id', $presentStudentIds)
+            ->reject(fn (Student $student): bool => $internshipCourseNames->contains($student->curso) || $excusedStudentIds->contains($student->id))
+            ->values();
+        $total = $students->count();
+        $present = $presentStudents->count();
+        $late = $lateStudents->count();
 
-        $courses = (clone $students)->whereNotNull('curso')->distinct()->orderBy('curso')->pluck('curso')
-            ->map(function (string $course) use ($students, $attendances): array {
-                $courseTotal = (clone $students)->where('curso', $course)->count();
-                $coursePresent = (clone $attendances)->where('curso', $course)->where('tipo', 'Entrada')->distinct()->count('student_id');
+        $courses = $students->pluck('curso')->filter()->unique()->sort()->values()
+            ->map(function (string $course) use ($students, $presentStudentIds): array {
+                $courseStudents = $students->where('curso', $course);
+                $coursePresentStudents = $courseStudents->whereIn('id', $presentStudentIds);
+                $courseTotal = $courseStudents->count();
+                $coursePresent = $coursePresentStudents->count();
 
                 return [
                     'name' => $course,
                     'present' => $coursePresent,
                     'total' => $courseTotal,
                     'percentage' => $courseTotal === 0 ? 0 : round(($coursePresent / $courseTotal) * 100, 1),
+                    'female' => $courseStudents->where('sexo', 'Femenino')->count(),
+                    'male' => $courseStudents->where('sexo', 'Masculino')->count(),
+                    'present_female' => $coursePresentStudents->where('sexo', 'Femenino')->count(),
+                    'present_male' => $coursePresentStudents->where('sexo', 'Masculino')->count(),
                 ];
             });
 
-        $records = (clone $attendances)->with('student:id,nombre,apellido')->latest('fecha_hora')->take(15)->get()
+        $records = (clone $attendances)->with('student:id,nombre,apellido')->latest('fecha_hora')->get()
             ->map(fn (Attendance $attendance): array => [
                 'id' => $attendance->id,
                 'name' => $attendance->student
@@ -100,11 +130,32 @@ class PublicDashboardController extends Controller
                 'total' => $total,
                 'present' => $present,
                 'late' => $late,
-                'absent' => max(0, $total - $present),
+                'absent' => $absentStudents->count(),
                 'percentage' => $total === 0 ? 0 : round(($present / $total) * 100, 1),
+                'female' => $students->where('sexo', 'Femenino')->count(),
+                'male' => $students->where('sexo', 'Masculino')->count(),
+                'present_female' => $presentStudents->where('sexo', 'Femenino')->count(),
+                'present_male' => $presentStudents->where('sexo', 'Masculino')->count(),
             ],
             'records' => $records,
             'courses' => $courses,
+            'rosters' => [
+                'present' => $this->studentRoster($presentStudents),
+                'late' => $this->studentRoster($lateStudents),
+                'absent' => $this->studentRoster($absentStudents),
+            ],
         ];
+    }
+
+    /** @return Collection<int, array<string, mixed>> */
+    private function studentRoster(Collection $students): Collection
+    {
+        return $students->map(fn (Student $student): array => [
+            'id' => $student->id,
+            'name' => $student->nombre.' '.$student->apellido,
+            'registration' => $student->matricula,
+            'course' => $student->curso ?: 'Sin curso',
+            'sex' => $student->sexo ?: 'Sin especificar',
+        ])->values();
     }
 }

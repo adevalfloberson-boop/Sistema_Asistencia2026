@@ -350,6 +350,37 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     };
 
+    const initializeOverviewRosterFilters = () => {
+        document.querySelectorAll('[data-overview-roster]').forEach((container) => {
+            if (container.dataset.initialized === 'true') {
+                return;
+            }
+
+            container.dataset.initialized = 'true';
+            const searchInput = container.querySelector('[data-roster-search]');
+            const courseSelect = container.querySelector('[data-roster-course]');
+            const emptyState = container.querySelector('[data-roster-empty]');
+
+            const applyFilters = () => {
+                const search = searchInput.value.trim().toLocaleLowerCase();
+                const course = courseSelect.value;
+                let visibleRows = 0;
+
+                container.querySelectorAll('[data-roster-row]').forEach((row) => {
+                    const isVisible = row.dataset.rosterSearchValue.includes(search)
+                        && (course === '' || row.dataset.rosterCourseValue === course);
+                    row.classList.toggle('hidden', ! isVisible);
+                    visibleRows += isVisible ? 1 : 0;
+                });
+
+                emptyState.classList.toggle('hidden', visibleRows > 0);
+            };
+
+            searchInput.addEventListener('input', applyFilters);
+            courseSelect.addEventListener('change', applyFilters);
+        });
+    };
+
     document.addEventListener('click', (event) => {
         const openButton = event.target.closest('[data-open-dialog]');
         const closeButton = event.target.closest('[data-close-dialog]');
@@ -405,6 +436,7 @@ document.addEventListener('DOMContentLoaded', () => {
     applyDeviceConsoleState();
     initializeBiometricEnrollment();
     initializeReportStudentSearch();
+    initializeOverviewRosterFilters();
 
     const adminPanel = document.querySelector('[data-admin-async-panel]');
 
@@ -492,6 +524,7 @@ document.addEventListener('DOMContentLoaded', () => {
             applyDeviceConsoleState();
             initializeBiometricEnrollment();
             initializeReportStudentSearch();
+            initializeOverviewRosterFilters();
 
             const currentSidebarSummary = document.querySelector('[data-admin-sidebar-summary]');
             const refreshedSidebarSummary = refreshedDocument.querySelector('[data-admin-sidebar-summary]');

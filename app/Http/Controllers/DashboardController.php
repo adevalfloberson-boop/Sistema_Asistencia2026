@@ -10,6 +10,7 @@ use App\Models\Course;
 use App\Models\DeviceCommand;
 use App\Models\School;
 use App\Models\Student;
+use App\Models\StudentAttendanceException;
 use App\Models\User;
 use App\Services\BiometricAttendanceRecorder;
 use Carbon\Carbon;
@@ -190,6 +191,10 @@ class DashboardController extends Controller
         $presentToday = 0;
         $departuresToday = 0;
         $absentToday = 0;
+        $absentStudentsToday = collect();
+        $presentStudentsToday = collect();
+        $lateStudentsToday = collect();
+        $overviewGenderSummary = ['female' => 0, 'male' => 0, 'unspecified' => 0, 'present_female' => 0, 'present_male' => 0];
         $attendanceByCourse = collect();
         $weeklyTrend = collect();
         $attendanceRoster = collect();
@@ -208,17 +213,56 @@ class DashboardController extends Controller
         $selectedReportStudent = null;
         $reportStudentSummary = ['attendance_days' => 0, 'late_days' => 0, 'days_without_entry' => 0];
         $enrollmentSummary = ['active_readers' => 0, 'total_readers' => 0, 'today' => 0, 'pending' => 0];
+        $internshipStudents = collect();
+        $internshipCourses = collect();
+        $studentAttendanceExceptions = collect();
+        $scheduleExceptions = collect();
 
         if ($reportStartDate->greaterThan($reportEndDate)) {
             [$reportStartDate, $reportEndDate] = [$reportEndDate, $reportStartDate];
         }
 
         if ($activePage === 'overview') {
-            $studentsTotal = (clone $studentQuery)->count();
+            $overviewStudents = (clone $studentQuery)
+                ->orderBy('curso')
+                ->orderBy('nombre')
+                ->orderBy('apellido')
+                ->get(['id', 'nombre', 'apellido', 'matricula', 'curso', 'sexo', 'father_email', 'mother_email']);
+            $studentsTotal = $overviewStudents->count();
             $todayAttendances = (clone $attendanceQuery)->whereDate('fecha_hora', $analysisDate);
             $presentToday = (clone $todayAttendances)->where('tipo', 'Entrada')->distinct()->count('student_id');
             $departuresToday = (clone $todayAttendances)->where('tipo', 'Salida')->distinct()->count('student_id');
             $absentToday = max(0, $studentsTotal - $presentToday);
+            $presentStudentIds = (clone $todayAttendances)
+                ->where('tipo', 'Entrada')
+                ->distinct()
+                ->pluck('student_id');
+            $lateStudentIds = (clone $todayAttendances)
+                ->where('tipo', 'Entrada')
+                ->where('is_late', true)
+                ->distinct()
+                ->pluck('student_id');
+            $presentStudentsToday = $overviewStudents->whereIn('id', $presentStudentIds)->values();
+            $lateStudentsToday = $overviewStudents->whereIn('id', $lateStudentIds)->values();
+            $internshipCourseNames = Course::query()
+                ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId))
+                ->where('internship_weekday', $analysisDate->isoWeekday())
+                ->pluck('name');
+            $excusedStudentIds = StudentAttendanceException::query()
+                ->whereDate('date', $analysisDate)
+                ->pluck('student_id');
+            $absentStudentsToday = $overviewStudents
+                ->whereNotIn('id', $presentStudentIds)
+                ->reject(fn (Student $student): bool => $internshipCourseNames->contains($student->curso) || $excusedStudentIds->contains($student->id))
+                ->values();
+            $absentToday = $absentStudentsToday->count();
+            $overviewGenderSummary = [
+                'female' => $overviewStudents->where('sexo', 'Femenino')->count(),
+                'male' => $overviewStudents->where('sexo', 'Masculino')->count(),
+                'unspecified' => $overviewStudents->whereNull('sexo')->count(),
+                'present_female' => $presentStudentsToday->where('sexo', 'Femenino')->count(),
+                'present_male' => $presentStudentsToday->where('sexo', 'Masculino')->count(),
+            ];
 
             $courses = (clone $studentQuery)
                 ->whereNotNull('curso')
@@ -226,20 +270,21 @@ class DashboardController extends Controller
                 ->orderBy('curso')
                 ->pluck('curso');
 
-            $attendanceByCourse = $courses->map(function (string $course) use ($studentQuery, $attendanceQuery, $analysisDate): array {
-                $students = (clone $studentQuery)->where('curso', $course)->count();
-                $present = (clone $attendanceQuery)
-                    ->whereDate('fecha_hora', $analysisDate)
-                    ->where('curso', $course)
-                    ->where('tipo', 'Entrada')
-                    ->distinct()
-                    ->count('student_id');
+            $attendanceByCourse = $courses->map(function (string $course) use ($overviewStudents, $presentStudentIds): array {
+                $courseStudents = $overviewStudents->where('curso', $course);
+                $presentStudents = $courseStudents->whereIn('id', $presentStudentIds);
+                $students = $courseStudents->count();
+                $present = $presentStudents->count();
 
                 return [
                     'curso' => $course,
                     'estudiantes' => $students,
                     'presentes' => $present,
                     'porcentaje' => $students === 0 ? 0 : round(($present / $students) * 100, 1),
+                    'female' => $courseStudents->where('sexo', 'Femenino')->count(),
+                    'male' => $courseStudents->where('sexo', 'Masculino')->count(),
+                    'present_female' => $presentStudents->where('sexo', 'Femenino')->count(),
+                    'present_male' => $presentStudents->where('sexo', 'Masculino')->count(),
                 ];
             })->sortByDesc('porcentaje')->values();
 
@@ -566,6 +611,22 @@ class DashboardController extends Controller
         $settingsSchool = $activePage === 'settings' && $lockedSchoolId
             ? School::query()->with('notificationSetting')->findOrFail($lockedSchoolId)
             : null;
+        if ($settingsSchool !== null) {
+            $internshipStudents = Student::query()
+                ->where('school_id', $settingsSchool->id)
+                ->where('is_active', true)
+                ->orderBy('curso')
+                ->orderBy('nombre')
+                ->get(['id', 'nombre', 'apellido', 'matricula', 'curso']);
+            $internshipCourses = Course::query()->where('school_id', $settingsSchool->id)->where('is_active', true)->orderBy('name')->get();
+            $studentAttendanceExceptions = StudentAttendanceException::query()
+                ->with('student:id,nombre,apellido,curso')
+                ->whereHas('student', fn ($query) => $query->where('school_id', $settingsSchool->id))
+                ->whereDate('date', '>=', today())
+                ->orderBy('date')
+                ->get();
+            $scheduleExceptions = $settingsSchool->scheduleExceptions()->whereDate('date', '>=', today())->orderBy('date')->get();
+        }
         $notificationHistory = $settingsSchool === null
             ? collect()
             : AttendanceNotification::query()
@@ -597,6 +658,10 @@ class DashboardController extends Controller
             'tendenciaSemanal' => $weeklyTrend,
             'ultimosRegistros' => $recentRecords,
             'attendanceRoster' => $attendanceRoster,
+            'absentStudentsToday' => $absentStudentsToday,
+            'presentStudentsToday' => $presentStudentsToday,
+            'lateStudentsToday' => $lateStudentsToday,
+            'overviewGenderSummary' => $overviewGenderSummary,
             'attendanceRosterSummary' => $attendanceRosterSummary,
             'attendanceCourses' => $attendanceCourses,
             'reportStartDate' => $reportStartDate,
@@ -625,6 +690,10 @@ class DashboardController extends Controller
             'shareSchool' => $shareSchool,
             'settingsSchool' => $settingsSchool,
             'notificationHistory' => $notificationHistory,
+            'internshipStudents' => $internshipStudents,
+            'internshipCourses' => $internshipCourses,
+            'studentAttendanceExceptions' => $studentAttendanceExceptions,
+            'scheduleExceptions' => $scheduleExceptions,
         ]);
     }
 }

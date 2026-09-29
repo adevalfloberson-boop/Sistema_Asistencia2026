@@ -237,6 +237,7 @@ class DemoSeeder extends Seeder
         ];
 
         $students = collect();
+        $femaleNames = ['Sofía', 'Valentina', 'Camila', 'Isabella', 'Emma', 'Mia', 'Lucía', 'Victoria', 'Sara', 'Paula', 'Natalia'];
         foreach ($estudiantesData as $sData) {
             $curso = $cursos[$sData['curso_idx']];
             $student = Student::query()->updateOrCreate(
@@ -245,6 +246,7 @@ class DemoSeeder extends Seeder
                     'course_id' => $curso->id,
                     'nombre' => $sData['nombre'],
                     'apellido' => $sData['apellido'],
+                    'sexo' => in_array($sData['nombre'], $femaleNames, true) ? 'Femenino' : 'Masculino',
                     'matricula' => $sData['matricula'],
                     'numero_lista' => $sData['numero_lista'],
                     'curso' => $curso->name,
@@ -297,34 +299,65 @@ class DemoSeeder extends Seeder
 
         // 7. Sesión de Aula para Docente
         $cursoDocente = $cursos[0];
-        $session = ClassSession::query()->updateOrCreate(
-            [
-                'course_id' => $cursoDocente->id,
-                'teacher_id' => $docente->id,
-                'scheduled_at' => $today->copy()->setTime(8, 0, 0),
-            ],
-            [
-                'subject' => 'Matemáticas y Razonamiento Lógico',
-                'status' => 'open',
-            ]
-        );
+        $classDates = collect();
+        $candidateDate = $today->copy();
+        while ($classDates->count() < 14) {
+            if ($candidateDate->isWeekday()) {
+                $classDates->prepend($candidateDate->copy());
+            }
+            $candidateDate->subDay();
+        }
 
-        $firstStudents = $students->where('course_id', $cursoDocente->id)->take(8);
-        foreach ($firstStudents as $idx => $st) {
-            $status = ($idx === 0) ? ClassAttendanceVerification::StatusLate : (($idx === 7) ? ClassAttendanceVerification::StatusCampusAbsentClass : ClassAttendanceVerification::StatusPresent);
-            ClassAttendanceVerification::query()->updateOrCreate(
+        $firstStudents = $students->where('course_id', $cursoDocente->id);
+        $exampleStatuses = [
+            ClassAttendanceVerification::StatusPresent,
+            ClassAttendanceVerification::StatusPresent,
+            ClassAttendanceVerification::StatusLate,
+            ClassAttendanceVerification::StatusLate,
+            ClassAttendanceVerification::StatusLate,
+            ClassAttendanceVerification::StatusPresent,
+            ClassAttendanceVerification::StatusPresent,
+            ClassAttendanceVerification::StatusExcused,
+            ClassAttendanceVerification::StatusExcused,
+            ClassAttendanceVerification::StatusAbsentCampus,
+            ClassAttendanceVerification::StatusPresent,
+            ClassAttendanceVerification::StatusPresent,
+            ClassAttendanceVerification::StatusPresent,
+            ClassAttendanceVerification::StatusExcused,
+        ];
+
+        foreach ($classDates as $classIndex => $classDate) {
+            $session = ClassSession::query()->updateOrCreate(
                 [
-                    'class_session_id' => $session->id,
-                    'student_id' => $st->id,
+                    'course_id' => $cursoDocente->id,
+                    'teacher_id' => $docente->id,
+                    'scheduled_at' => $classDate->copy()->setTime(8, 0),
                 ],
                 [
-                    'teacher_id' => $docente->id,
-                    'status' => $status,
-                    'was_on_campus' => true,
-                    'note' => $status === ClassAttendanceVerification::StatusLate ? 'Llegó 10 min tarde por transporte escolar' : null,
-                    'verified_at' => $now->copy()->subMinutes(20),
-                ]
+                    'subject' => 'Matemáticas y Razonamiento Lógico',
+                    'started_at' => $classDate->copy()->setTime(8, 0),
+                    'ended_at' => $classDate->isToday() ? null : $classDate->copy()->setTime(8, 50),
+                    'status' => $classDate->isToday() ? 'open' : 'closed',
+                ],
             );
+
+            foreach ($firstStudents as $studentIndex => $student) {
+                $status = $studentIndex === 0
+                    ? $exampleStatuses[$classIndex]
+                    : (($classIndex + $studentIndex) % 11 === 0
+                        ? ClassAttendanceVerification::StatusLate
+                        : ClassAttendanceVerification::StatusPresent);
+                ClassAttendanceVerification::query()->updateOrCreate(
+                    ['class_session_id' => $session->id, 'student_id' => $student->id],
+                    [
+                        'teacher_id' => $docente->id,
+                        'status' => $status,
+                        'was_on_campus' => $status !== ClassAttendanceVerification::StatusAbsentCampus,
+                        'note' => $status === ClassAttendanceVerification::StatusExcused ? 'Excusa académica de demostración' : null,
+                        'verified_at' => $classDate->copy()->setTime(8, 45),
+                    ],
+                );
+            }
         }
 
         // 8. Registro de Auditoría

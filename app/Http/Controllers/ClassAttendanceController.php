@@ -50,8 +50,15 @@ class ClassAttendanceController extends Controller
             ]);
         }
 
+        $this->createDefaultAbsences($classSession, $teacher);
+
         return redirect()
-            ->route('dashboard.docente', ['course' => $course->id, 'date' => today()->toDateString()])
+            ->route('dashboard.docente', [
+                'course' => $course->id,
+                'date' => today()->toDateString(),
+                'report_month' => today()->format('Y-m'),
+                'take_attendance' => 1,
+            ])
             ->with('success', "Verificación iniciada para {$course->name}.");
     }
 
@@ -117,7 +124,7 @@ class ClassAttendanceController extends Controller
         $validated = $request->validate([
             'class_session_id' => ['required', 'integer', 'exists:class_sessions,id'],
             'attendance' => ['present', 'array'],
-            'attendance.*' => ['required', Rule::in(['present', 'late', 'absent'])],
+            'attendance.*' => ['required', Rule::in(['present', 'late', 'excused', 'absent'])],
         ]);
 
         $teacher = $this->teacher($request);
@@ -232,5 +239,48 @@ class ClassAttendanceController extends Controller
                     });
             })
             ->count();
+    }
+
+    private function createDefaultAbsences(ClassSession $classSession, User $teacher): void
+    {
+        $students = Student::query()
+            ->where('is_active', true)
+            ->where(function ($query) use ($classSession): void {
+                $query->where('course_id', $classSession->course_id)
+                    ->orWhere(function ($legacyQuery) use ($classSession): void {
+                        $legacyQuery->whereNull('course_id')->where('curso', $classSession->course->name);
+                    });
+            })
+            ->get();
+
+        $campusRecords = Attendance::query()
+            ->whereIn('student_id', $students->modelKeys())
+            ->whereDate('fecha_hora', $classSession->scheduled_at)
+            ->where('is_ignored', false)
+            ->oldest('fecha_hora')
+            ->get()
+            ->groupBy('student_id')
+            ->map(fn ($records): Attendance => $records->last());
+
+        DB::transaction(function () use ($campusRecords, $classSession, $students, $teacher): void {
+            foreach ($students as $student) {
+                $isOnCampus = $campusRecords->get($student->id)?->tipo === 'Entrada';
+
+                ClassAttendanceVerification::query()->firstOrCreate(
+                    [
+                        'class_session_id' => $classSession->id,
+                        'student_id' => $student->id,
+                    ],
+                    [
+                        'teacher_id' => $teacher->id,
+                        'status' => $isOnCampus
+                            ? ClassAttendanceVerification::StatusCampusAbsentClass
+                            : ClassAttendanceVerification::StatusAbsentCampus,
+                        'was_on_campus' => $isOnCampus,
+                        'verified_at' => now(),
+                    ],
+                );
+            }
+        });
     }
 }

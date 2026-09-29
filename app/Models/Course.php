@@ -22,6 +22,7 @@ class Course extends Model
         'area',
         'section',
         'shift',
+        'internship_weekday',
         'is_active',
     ];
 
@@ -29,6 +30,7 @@ class Course extends Model
     {
         return [
             'is_active' => 'boolean',
+            'internship_weekday' => 'integer',
         ];
     }
 

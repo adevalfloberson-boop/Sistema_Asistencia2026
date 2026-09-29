@@ -60,6 +60,65 @@ test('live activity console is rendered only on its dedicated page', function ()
         ->assertSee('Operación en tiempo real');
 });
 
+test('overview cards open dialogs and list students absent today', function () {
+    $school = School::query()->create(['code' => 'ABS001', 'name' => 'Escuela de Ausencias']);
+    $admin = User::factory()->create(['school_id' => $school->id, 'role' => 'admin']);
+    Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'AUS-001',
+        'nombre' => 'María',
+        'apellido' => 'Sin Entrada',
+        'curso' => '4to A',
+        'sexo' => 'Femenino',
+        'id_lector' => 'AUS-1',
+    ]);
+    $presentStudent = Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'PRE-001',
+        'nombre' => 'Juan',
+        'apellido' => 'Con Entrada',
+        'curso' => '4to A',
+        'sexo' => 'Masculino',
+        'id_lector' => 'PRE-1',
+    ]);
+    Attendance::query()->create([
+        'school_id' => $school->id,
+        'student_id' => $presentStudent->id,
+        'matricula' => $presentStudent->matricula,
+        'id_lector' => $presentStudent->id_lector,
+        'fecha_hora' => now(),
+        'curso' => $presentStudent->curso,
+        'estado' => 'Tarde',
+        'tipo' => 'Entrada',
+        'is_late' => true,
+    ]);
+
+    $this->withSession(['user' => [
+        'id' => $admin->id,
+        'username' => $admin->username,
+        'role' => 'admin',
+        'school_id' => $school->id,
+        'institution_code' => $school->code,
+    ]])->get(route('dashboard.admin'))
+        ->assertOk()
+        ->assertSee('data-open-dialog="overview-absent-dialog"', escape: false)
+        ->assertSee('data-absent-students-dialog', escape: false)
+        ->assertSee('data-late-students-dialog', escape: false)
+        ->assertSee('data-roster-search', escape: false)
+        ->assertSee('Hembras')
+        ->assertSee('Varones')
+        ->assertSee('Juan Con Entrada')
+        ->assertSee('María Sin Entrada')
+        ->assertSee('4to A')
+        ->assertViewHas('overviewGenderSummary', fn (array $summary): bool => $summary['female'] === 1
+            && $summary['male'] === 1
+            && $summary['present_female'] === 0
+            && $summary['present_male'] === 1)
+        ->assertViewHas('asistenciaPorCurso', fn ($courses): bool => $courses->first()['female'] === 1
+            && $courses->first()['male'] === 1
+            && $courses->first()['present_male'] === 1);
+});
+
 test('biometric enrollment is presented as a guided flow with real person status', function () {
     $school = School::query()->create(['code' => 'BIO001', 'name' => 'Escuela Biométrica']);
     $admin = User::factory()->create(['school_id' => $school->id, 'role' => 'admin']);

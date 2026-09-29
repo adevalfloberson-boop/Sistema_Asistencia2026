@@ -26,6 +26,9 @@ class TeacherDashboardController extends Controller
             ->values();
         $selectedCourse = $courses->firstWhere('id', $request->integer('course')) ?? $courses->first();
         $selectedDate = $this->selectedDate($request);
+        $reportMonth = $request->filled('report_month')
+            ? Carbon::createFromFormat('Y-m', $request->string('report_month')->toString())->startOfMonth()
+            : $selectedDate->copy()->startOfMonth();
 
         $students = $selectedCourse === null
             ? collect()
@@ -86,6 +89,73 @@ class TeacherDashboardController extends Controller
             ->take(8)
             ->get();
 
+        $monthlySessions = $selectedCourse === null
+            ? collect()
+            : ClassSession::query()
+                ->with('verifications')
+                ->where('course_id', $selectedCourse->id)
+                ->where('teacher_id', $teacher->id)
+                ->whereYear('scheduled_at', $reportMonth->year)
+                ->whereMonth('scheduled_at', $reportMonth->month)
+                ->oldest('scheduled_at')
+                ->get();
+        $reportedClassCount = $monthlySessions->count();
+        $monthlyVerifications = $monthlySessions->flatMap->verifications->groupBy('student_id');
+        $monthlyReport = $students->map(function (Student $student) use ($monthlySessions, $monthlyVerifications, $reportedClassCount): array {
+            $studentVerifications = $monthlyVerifications->get($student->id, collect());
+            $verificationsBySession = $studentVerifications->keyBy('class_session_id');
+            $statuses = $studentVerifications->pluck('status');
+            $present = $statuses->filter(fn (string $status): bool => $status === ClassAttendanceVerification::StatusPresent)->count();
+            $late = $statuses->filter(fn (string $status): bool => $status === ClassAttendanceVerification::StatusLate)->count();
+            $excused = $statuses->filter(fn (string $status): bool => $status === ClassAttendanceVerification::StatusExcused)->count();
+            $absent = $statuses->filter(fn (string $status): bool => in_array($status, [
+                ClassAttendanceVerification::StatusCampusAbsentClass,
+                ClassAttendanceVerification::StatusAbsentCampus,
+            ], true))->count();
+            $equivalentAbsences = $absent + intdiv($late, 3) + intdiv($excused, 3);
+            $creditedAttendance = max(0, $reportedClassCount - $equivalentAbsences);
+
+            return [
+                'student' => $student,
+                'present' => $present,
+                'late' => $late,
+                'excused' => $excused,
+                'absent' => $absent,
+                'classified' => $statuses->count(),
+                'daily_statuses' => $monthlySessions->map(function (ClassSession $session) use ($verificationsBySession): array {
+                    $status = $verificationsBySession->get($session->id)?->status;
+                    $inputStatus = match ($status) {
+                        ClassAttendanceVerification::StatusPresent => 'present',
+                        ClassAttendanceVerification::StatusLate => 'late',
+                        ClassAttendanceVerification::StatusExcused => 'excused',
+                        ClassAttendanceVerification::StatusCampusAbsentClass,
+                        ClassAttendanceVerification::StatusAbsentCampus => 'absent',
+                        default => 'absent',
+                    };
+
+                    return [
+                        'session_id' => $session->id,
+                        'date' => $session->scheduled_at,
+                        'editable' => $session->status === 'open' && $session->scheduled_at->isToday(),
+                        'input_status' => $inputStatus,
+                        'code' => match ($status) {
+                            ClassAttendanceVerification::StatusPresent => 'P',
+                            ClassAttendanceVerification::StatusLate => 'T',
+                            ClassAttendanceVerification::StatusExcused => 'E',
+                            ClassAttendanceVerification::StatusCampusAbsentClass,
+                            ClassAttendanceVerification::StatusAbsentCampus => 'A',
+                            default => '—',
+                        },
+                    ];
+                }),
+                'equivalent_absences' => $equivalentAbsences,
+                'credited_attendance' => $creditedAttendance,
+                'percentage' => $reportedClassCount === 0
+                    ? 0.0
+                    : round(($creditedAttendance / $reportedClassCount) * 100, 2),
+            ];
+        });
+
         return view('dashboards.teacher', [
             'teacher' => $teacher,
             'courses' => $courses,
@@ -95,6 +165,11 @@ class TeacherDashboardController extends Controller
             'roster' => $roster,
             'statusLabels' => ClassAttendanceVerification::statusLabels(),
             'recentReports' => $recentReports,
+            'reportMonth' => $reportMonth,
+            'monthlySessions' => $monthlySessions,
+            'monthlySessionCount' => $monthlySessions->count(),
+            'reportedClassCount' => $reportedClassCount,
+            'monthlyReport' => $monthlyReport,
             'summary' => [
                 'students' => $roster->count(),
                 'on_campus' => $roster->where('campus_status', 'on_campus')->count(),

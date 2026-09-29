@@ -71,4 +71,9 @@ class Student extends Model
     {
         return $this->hasMany(EarlyDepartureAuthorization::class);
     }
+
+    public function attendanceExceptions(): HasMany
+    {
+        return $this->hasMany(StudentAttendanceException::class);
+    }
 }

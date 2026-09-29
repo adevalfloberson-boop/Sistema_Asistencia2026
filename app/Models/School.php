@@ -79,4 +79,9 @@ class School extends Model
     {
         return $this->hasMany(EarlyDepartureAuthorization::class);
     }
+
+    public function scheduleExceptions(): HasMany
+    {
+        return $this->hasMany(SchoolScheduleException::class);
+    }
 }

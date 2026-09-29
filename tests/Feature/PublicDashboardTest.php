@@ -35,8 +35,28 @@ test('public dashboard shows live attendance without authentication', function (
         'nombre' => 'María',
         'apellido' => 'Pérez',
         'curso' => '5to A',
+        'sexo' => 'Femenino',
         'id_lector' => '2',
     ]);
+    Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'EST-003',
+        'nombre' => 'José',
+        'apellido' => 'Ausente',
+        'curso' => '5to A',
+        'sexo' => 'Masculino',
+        'id_lector' => '3',
+    ]);
+    $internshipStudent = Student::query()->create([
+        'school_id' => $school->id,
+        'matricula' => 'EST-004',
+        'nombre' => 'Laura',
+        'apellido' => 'Pasantía',
+        'curso' => '5to A',
+        'sexo' => 'Femenino',
+        'id_lector' => '4',
+    ]);
+    $internshipStudent->attendanceExceptions()->create(['date' => today(), 'reason' => 'Pasantía individual']);
     Attendance::query()->create([
         'school_id' => $school->id,
         'student_id' => $student->id,
@@ -55,11 +75,23 @@ test('public dashboard shows live attendance without authentication', function (
         ->assertOk()
         ->assertSee('Centro Escolar en Vivo')
         ->assertSee('María Pérez')
+        ->assertSee('José Ausente')
         ->assertSee('Actividad en vivo')
+        ->assertSee('data-open-dialog="public-total-dialog"', escape: false)
+        ->assertSee('data-open-dialog="public-absent-dialog"', escape: false)
+        ->assertSee('Hembras')
+        ->assertSee('Varones')
         ->assertDontSee('Eventos ADMS sin filtrar');
 
     $this->getJson(route('public.dashboard.activity', $school->public_dashboard_token))
         ->assertOk()
         ->assertJsonPath('summary.present', 1)
+        ->assertJsonPath('summary.absent', 1)
+        ->assertJsonPath('summary.female', 2)
+        ->assertJsonPath('summary.male', 1)
+        ->assertJsonPath('courses.0.present_female', 1)
+        ->assertJsonPath('courses.0.male', 1)
+        ->assertJsonPath('rosters.absent.0.name', 'José Ausente')
+        ->assertJsonMissing(['name' => 'Laura Pasantía'])
         ->assertJsonPath('records.0.name', 'María Pérez');
 });

@@ -110,7 +110,7 @@ test('teacher can report a student who is on campus but absent from class', func
     ]);
 });
 
-test('teacher sees the three direct verification buttons during an open class', function () {
+test('teacher uses the editable monthly cell during an open class', function () {
     ['school' => $school, 'teacher' => $teacher, 'course' => $course] = teacherPanelFixture();
 
     ClassSession::query()->create([
@@ -124,12 +124,38 @@ test('teacher sees the three direct verification buttons during an open class', 
     $this->withSession(teacherPanelSession($teacher, $school))
         ->get(route('dashboard.docente', ['course' => $course->id]))
         ->assertOk()
-        ->assertSee('Presente')
-        ->assertSee('Tardanza')
-        ->assertSee('Ausente')
-        ->assertDontSee('Excusa')
-        ->assertDontSee('Agregar observación')
-        ->assertDontSee('Seleccionar estado');
+        ->assertSee('data-monthly-status-select', escape: false)
+        ->assertSee('Usa el selector de hoy para elegir A, P, T o E.')
+        ->assertSee('Guardar asistencia de hoy')
+        ->assertSee('La entrada tardía a la escuela no marca tardanza en esta clase.');
+});
+
+test('starting attendance marks every student absent without copying a school tardy', function () {
+    ['school' => $school, 'teacher' => $teacher, 'course' => $course, 'student' => $student] = teacherPanelFixture();
+
+    Attendance::query()->create([
+        'school_id' => $school->id,
+        'student_id' => $student->id,
+        'matricula' => $student->matricula,
+        'id_lector' => $student->id_lector,
+        'fecha_hora' => now(),
+        'curso' => $course->name,
+        'estado' => 'Tardanza',
+        'tipo' => 'Entrada',
+    ]);
+
+    $this->withSession(teacherPanelSession($teacher, $school))
+        ->post(route('teacher.sessions.start'), ['course_id' => $course->id])
+        ->assertRedirectContains('take_attendance=1');
+
+    $this->assertDatabaseHas('class_attendance_verifications', [
+        'student_id' => $student->id,
+        'status' => ClassAttendanceVerification::StatusCampusAbsentClass,
+    ]);
+    $this->assertDatabaseMissing('class_attendance_verifications', [
+        'student_id' => $student->id,
+        'status' => ClassAttendanceVerification::StatusLate,
+    ]);
 });
 
 test('teacher cannot label a student as on campus when there is no active entry', function () {
@@ -199,7 +225,7 @@ test('teacher saves the class roster in one operation and closes the session', f
     expect($classSession->fresh()->status)->toBe('closed');
 });
 
-test('teacher roster only offers the three direct attendance states', function () {
+test('teacher attendance roster is unified into the monthly register', function () {
     ['school' => $school, 'teacher' => $teacher, 'course' => $course] = teacherPanelFixture();
 
     ClassSession::query()->create([
@@ -213,9 +239,57 @@ test('teacher roster only offers the three direct attendance states', function (
     $this->withSession(teacherPanelSession($teacher, $school))
         ->get(route('dashboard.docente', ['course' => $course->id]))
         ->assertOk()
-        ->assertSee('Marcar todos presentes')
-        ->assertSee('Guardar asistencia')
-        ->assertSee('Pendientes')
-        ->assertDontSee('Agregar observación')
-        ->assertDontSee('Asignatura (opcional)');
+        ->assertSee('data-monthly-status-select', escape: false)
+        ->assertSee('Guardar asistencia de hoy')
+        ->assertSee('class="hidden"', escape: false);
+});
+
+test('teacher monthly report converts each three tardies and excuses into one absence', function () {
+    ['school' => $school, 'teacher' => $teacher, 'course' => $course, 'student' => $student] = teacherPanelFixture();
+    $statuses = [
+        'present', 'present', 'late', 'late', 'late', 'present', 'present',
+        'excused', 'excused', 'absent_campus', 'present', 'present', 'present', 'excused',
+    ];
+
+    foreach ($statuses as $index => $status) {
+        $session = ClassSession::query()->create([
+            'course_id' => $course->id,
+            'teacher_id' => $teacher->id,
+            'scheduled_at' => now()->startOfMonth()->addDays($index)->setTime(8, 0),
+            'status' => 'closed',
+        ]);
+        ClassAttendanceVerification::query()->create([
+            'class_session_id' => $session->id,
+            'student_id' => $student->id,
+            'teacher_id' => $teacher->id,
+            'status' => $status,
+            'was_on_campus' => $status !== 'absent_campus',
+            'verified_at' => $session->scheduled_at,
+        ]);
+    }
+
+    $this->withSession(teacherPanelSession($teacher, $school))
+        ->get(route('dashboard.docente', [
+            'course' => $course->id,
+            'report_month' => now()->format('Y-m'),
+            'monthly_classes' => 5,
+        ]))
+        ->assertOk()
+        ->assertSee('Reporte por estudiantes')
+        ->assertSee('data-monthly-student-report', escape: false)
+        ->assertSee('data-month-date-cell', escape: false)
+        ->assertSee('11/14')
+        ->assertSee('78.57%')
+        ->assertDontSee('name="monthly_classes"', escape: false)
+        ->assertViewHas('monthlySessions', fn ($sessions): bool => $sessions->count() === 14)
+        ->assertViewHas('monthlyReport', function ($report): bool {
+            $firstStudent = $report->first();
+
+            return $firstStudent['equivalent_absences'] === 3
+                && $firstStudent['credited_attendance'] === 11
+                && $firstStudent['percentage'] === 78.57
+                && $firstStudent['daily_statuses']->pluck('code')->all() === [
+                    'P', 'P', 'T', 'T', 'T', 'P', 'P', 'E', 'E', 'A', 'P', 'P', 'P', 'E',
+                ];
+        });
 });
