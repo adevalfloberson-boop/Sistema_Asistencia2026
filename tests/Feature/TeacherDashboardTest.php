@@ -125,12 +125,12 @@ test('teacher uses the editable monthly cell during an open class', function () 
         ->get(route('dashboard.docente', ['course' => $course->id]))
         ->assertOk()
         ->assertSee('data-monthly-status-select', escape: false)
-        ->assertSee('Usa el selector de hoy para elegir A, P, T o E.')
-        ->assertSee('Guardar asistencia de hoy')
+        ->assertSee('Quien todavía no haya ponchado se muestra como A provisional.')
+        ->assertSee('Guardar y cerrar asistencia')
         ->assertSee('La entrada tardía a la escuela no marca tardanza en esta clase.');
 });
 
-test('starting attendance marks every student absent without copying a school tardy', function () {
+test('starting attendance automatically marks a student present from a school punch without copying tardiness', function () {
     ['school' => $school, 'teacher' => $teacher, 'course' => $course, 'student' => $student] = teacherPanelFixture();
 
     Attendance::query()->create([
@@ -150,12 +150,99 @@ test('starting attendance marks every student absent without copying a school ta
 
     $this->assertDatabaseHas('class_attendance_verifications', [
         'student_id' => $student->id,
-        'status' => ClassAttendanceVerification::StatusCampusAbsentClass,
+        'status' => ClassAttendanceVerification::StatusPresent,
+        'was_on_campus' => true,
     ]);
     $this->assertDatabaseMissing('class_attendance_verifications', [
         'student_id' => $student->id,
         'status' => ClassAttendanceVerification::StatusLate,
     ]);
+});
+
+test('starting attendance keeps a student without a punch as a provisional absence', function () {
+    ['school' => $school, 'teacher' => $teacher, 'course' => $course, 'student' => $student] = teacherPanelFixture();
+
+    $this->withSession(teacherPanelSession($teacher, $school))
+        ->post(route('teacher.sessions.start'), ['course_id' => $course->id])
+        ->assertRedirectContains('take_attendance=1');
+
+    $this->assertDatabaseMissing('class_attendance_verifications', [
+        'student_id' => $student->id,
+    ]);
+
+    $this->withSession(teacherPanelSession($teacher, $school))
+        ->get(route('dashboard.docente', ['course' => $course->id]))
+        ->assertOk()
+        ->assertSee('Quien todavía no haya ponchado se muestra como A provisional.');
+});
+
+test('teacher can synchronize a later school punch without overwriting a manual decision', function () {
+    ['school' => $school, 'teacher' => $teacher, 'course' => $course, 'student' => $student] = teacherPanelFixture();
+    $classSession = ClassSession::query()->create([
+        'course_id' => $course->id,
+        'teacher_id' => $teacher->id,
+        'scheduled_at' => now(),
+        'started_at' => now(),
+        'status' => 'open',
+    ]);
+
+    Attendance::query()->create([
+        'school_id' => $school->id,
+        'student_id' => $student->id,
+        'matricula' => $student->matricula,
+        'id_lector' => $student->id_lector,
+        'fecha_hora' => now(),
+        'curso' => $course->name,
+        'estado' => 'Entrada',
+        'tipo' => 'Entrada',
+    ]);
+
+    $session = teacherPanelSession($teacher, $school);
+    $this->withSession($session)
+        ->post(route('teacher.sessions.synchronize', $classSession))
+        ->assertRedirectContains('take_attendance=1');
+
+    $this->assertDatabaseHas('class_attendance_verifications', [
+        'student_id' => $student->id,
+        'status' => ClassAttendanceVerification::StatusPresent,
+    ]);
+
+    $this->withSession($session)->post(route('teacher.verifications.store'), [
+        'class_session_id' => $classSession->id,
+        'student_id' => $student->id,
+        'status' => ClassAttendanceVerification::StatusExcused,
+    ])->assertRedirect();
+
+    $this->withSession($session)
+        ->post(route('teacher.sessions.synchronize', $classSession))
+        ->assertRedirect();
+
+    $this->assertDatabaseHas('class_attendance_verifications', [
+        'student_id' => $student->id,
+        'status' => ClassAttendanceVerification::StatusExcused,
+    ]);
+});
+
+test('closing a class finalizes every provisional absence', function () {
+    ['school' => $school, 'teacher' => $teacher, 'course' => $course, 'student' => $student] = teacherPanelFixture();
+    $classSession = ClassSession::query()->create([
+        'course_id' => $course->id,
+        'teacher_id' => $teacher->id,
+        'scheduled_at' => now(),
+        'started_at' => now(),
+        'status' => 'open',
+    ]);
+
+    $this->withSession(teacherPanelSession($teacher, $school))
+        ->post(route('teacher.sessions.close', $classSession))
+        ->assertRedirect();
+
+    $this->assertDatabaseHas('class_attendance_verifications', [
+        'student_id' => $student->id,
+        'status' => ClassAttendanceVerification::StatusAbsentCampus,
+        'was_on_campus' => false,
+    ]);
+    expect($classSession->fresh()->status)->toBe('closed');
 });
 
 test('teacher cannot label a student as on campus when there is no active entry', function () {
@@ -240,7 +327,7 @@ test('teacher attendance roster is unified into the monthly register', function 
         ->get(route('dashboard.docente', ['course' => $course->id]))
         ->assertOk()
         ->assertSee('data-monthly-status-select', escape: false)
-        ->assertSee('Guardar asistencia de hoy')
+        ->assertSee('Guardar y cerrar asistencia')
         ->assertSee('class="hidden"', escape: false);
 });
 

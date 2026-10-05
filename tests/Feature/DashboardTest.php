@@ -119,6 +119,97 @@ test('overview cards open dialogs and list students absent today', function () {
             && $courses->first()['present_male'] === 1);
 });
 
+test('attendance charts exclude course internships and individual attendance exceptions', function () {
+    Carbon::setTestNow('2026-10-05 09:00:00');
+    $school = School::query()->create(['code' => 'INTERNSHIP', 'name' => 'Escuela con Pasantías']);
+    $admin = User::factory()->create(['school_id' => $school->id, 'role' => 'admin']);
+    $internshipCourse = Course::query()->create([
+        'school_id' => $school->id,
+        'code' => '6TO-A',
+        'name' => '6to A',
+        'internship_weekday' => today()->isoWeekday(),
+    ]);
+    $regularCourse = Course::query()->create([
+        'school_id' => $school->id,
+        'code' => '5TO-A',
+        'name' => '5to A',
+    ]);
+    Student::query()->create([
+        'school_id' => $school->id,
+        'course_id' => $internshipCourse->id,
+        'matricula' => 'PAS-001',
+        'nombre' => 'Estudiante',
+        'apellido' => 'En Pasantía',
+        'curso' => $internshipCourse->name,
+        'sexo' => 'Femenino',
+        'id_lector' => 'PAS-1',
+    ]);
+    $presentStudent = Student::query()->create([
+        'school_id' => $school->id,
+        'course_id' => $regularCourse->id,
+        'matricula' => 'REG-001',
+        'nombre' => 'Estudiante',
+        'apellido' => 'Presente',
+        'curso' => $regularCourse->name,
+        'sexo' => 'Masculino',
+        'id_lector' => 'REG-1',
+    ]);
+    $individualInternshipStudent = Student::query()->create([
+        'school_id' => $school->id,
+        'course_id' => $regularCourse->id,
+        'matricula' => 'PAS-002',
+        'nombre' => 'Pasantía',
+        'apellido' => 'Individual',
+        'curso' => $regularCourse->name,
+        'sexo' => 'Femenino',
+        'id_lector' => 'PAS-2',
+    ]);
+    $individualInternshipStudent->attendanceExceptions()->create([
+        'date' => today(),
+        'reason' => 'Pasantía individual',
+    ]);
+    Attendance::query()->create([
+        'school_id' => $school->id,
+        'student_id' => $presentStudent->id,
+        'matricula' => $presentStudent->matricula,
+        'id_lector' => $presentStudent->id_lector,
+        'fecha_hora' => now(),
+        'curso' => $presentStudent->curso,
+        'estado' => 'Entrada',
+        'tipo' => 'Entrada',
+    ]);
+
+    $response = $this->withSession(['user' => [
+        'id' => $admin->id,
+        'username' => $admin->username,
+        'role' => 'admin',
+        'school_id' => $school->id,
+        'institution_code' => $school->code,
+    ]])->get(route('dashboard.admin'));
+
+    $response->assertOk()
+        ->assertSee('Las pasantías programadas no se computan como ausencias.')
+        ->assertSee('1 en pasantía · excluidos de ausencias')
+        ->assertViewHas('resumen', fn (array $summary): bool => $summary['ausentes_hoy'] === 0
+            && $summary['porcentaje_hoy'] === 100.0)
+        ->assertViewHas('asistenciaPorCurso', function ($courses): bool {
+            $regular = $courses->firstWhere('curso', '5to A');
+            $internship = $courses->firstWhere('curso', '6to A');
+
+            return $regular['matriculados'] === 2
+                && $regular['estudiantes'] === 1
+                && $regular['pasantia'] === 1
+                && $regular['presentes'] === 1
+                && $regular['porcentaje'] === 100.0
+                && $internship['matriculados'] === 1
+                && $internship['estudiantes'] === 0
+                && $internship['pasantia'] === 1
+                && $internship['presentes'] === 0;
+        });
+
+    Carbon::setTestNow();
+});
+
 test('biometric enrollment is presented as a guided flow with real person status', function () {
     $school = School::query()->create(['code' => 'BIO001', 'name' => 'Escuela Biométrica']);
     $admin = User::factory()->create(['school_id' => $school->id, 'role' => 'admin']);

@@ -87,3 +87,26 @@ test('administrator can justify a late entry for their school', function () {
         ->and($attendance->fresh()->excuse_note)->toBe('Cita médica.')
         ->and($attendance->fresh()->excused_by)->toBe($admin->id);
 });
+
+test('a first live punch at or after the effective exit time is not recorded as an entry', function () {
+    $this->school->scheduleExceptions()->create([
+        'date' => '2026-09-03',
+        'exit_time' => '12:00',
+        'reason' => 'Salida especial',
+    ]);
+    $this->travelTo('2026-09-03 12:05:00');
+
+    $this->withHeader('X-Biometric-Token', 'schedule-secret')->postJson(route('api.asistencia'), [
+        'id_lector' => '101',
+        'reader_key' => $this->device->key,
+    ])->assertOk()->assertJsonPath('tipo', 'Ignorado');
+
+    $this->travelBack();
+
+    $this->assertDatabaseHas('attendances', [
+        'student_id' => $this->student->id,
+        'tipo' => 'Ignorado',
+        'is_ignored' => true,
+        'ignored_reason' => 'entry_at_or_after_exit_time',
+    ]);
+});

@@ -190,6 +190,8 @@ class DashboardController extends Controller
 
         $studentQuery->where('is_active', true);
         $studentsTotal = 0;
+        $attendanceEligibleTotal = 0;
+        $presentEligibleToday = 0;
         $presentToday = 0;
         $departuresToday = 0;
         $absentToday = 0;
@@ -267,9 +269,15 @@ class DashboardController extends Controller
             $excusedStudentIds = StudentAttendanceException::query()
                 ->whereDate('date', $analysisDate)
                 ->pluck('student_id');
+            $internshipStudentIds = $overviewStudents
+                ->filter(fn (Student $student): bool => $internshipCourseNames->contains($student->curso) || $excusedStudentIds->contains($student->id))
+                ->pluck('id');
+            $attendanceEligibleStudents = $overviewStudents->whereNotIn('id', $internshipStudentIds)->values();
+            $attendanceEligibleTotal = $attendanceEligibleStudents->count();
+            $presentEligibleToday = $attendanceEligibleStudents->whereIn('id', $presentStudentIds)->count();
             $absentStudentsToday = $overviewStudents
                 ->whereNotIn('id', $presentStudentIds)
-                ->reject(fn (Student $student): bool => $internshipCourseNames->contains($student->curso) || $excusedStudentIds->contains($student->id))
+                ->whereNotIn('id', $internshipStudentIds)
                 ->values();
             $absentToday = $absentStudentsToday->count();
             $overviewGenderSummary = [
@@ -286,36 +294,52 @@ class DashboardController extends Controller
                 ->orderBy('curso')
                 ->pluck('curso');
 
-            $attendanceByCourse = $courses->map(function (string $course) use ($overviewStudents, $presentStudentIds): array {
+            $attendanceByCourse = $courses->map(function (string $course) use ($internshipStudentIds, $overviewStudents, $presentStudentIds): array {
                 $courseStudents = $overviewStudents->where('curso', $course);
-                $presentStudents = $courseStudents->whereIn('id', $presentStudentIds);
-                $students = $courseStudents->count();
+                $eligibleStudents = $courseStudents->whereNotIn('id', $internshipStudentIds);
+                $presentStudents = $eligibleStudents->whereIn('id', $presentStudentIds);
+                $students = $eligibleStudents->count();
                 $present = $presentStudents->count();
 
                 return [
                     'curso' => $course,
+                    'matriculados' => $courseStudents->count(),
                     'estudiantes' => $students,
+                    'pasantia' => $courseStudents->count() - $students,
                     'presentes' => $present,
                     'porcentaje' => $students === 0 ? 0 : round(($present / $students) * 100, 1),
-                    'female' => $courseStudents->where('sexo', 'Femenino')->count(),
-                    'male' => $courseStudents->where('sexo', 'Masculino')->count(),
+                    'female' => $eligibleStudents->where('sexo', 'Femenino')->count(),
+                    'male' => $eligibleStudents->where('sexo', 'Masculino')->count(),
                     'present_female' => $presentStudents->where('sexo', 'Femenino')->count(),
                     'present_male' => $presentStudents->where('sexo', 'Masculino')->count(),
                 ];
             })->sortByDesc('porcentaje')->values();
 
-            $weeklyTrend = collect(range(4, 0))->map(function (int $daysAgo) use ($attendanceQuery, $studentsTotal): array {
+            $weeklyTrend = collect(range(4, 0))->map(function (int $daysAgo) use ($attendanceQuery, $overviewStudents, $selectedSchoolId): array {
                 $date = today()->subDays($daysAgo);
-                $present = (clone $attendanceQuery)
+                $internshipCourseNames = Course::query()
+                    ->when($selectedSchoolId, fn ($query, int $schoolId) => $query->where('school_id', $schoolId))
+                    ->where('internship_weekday', $date->isoWeekday())
+                    ->pluck('name');
+                $excusedStudentIds = StudentAttendanceException::query()
+                    ->whereDate('date', $date)
+                    ->pluck('student_id');
+                $eligibleStudents = $overviewStudents->reject(
+                    fn (Student $student): bool => $internshipCourseNames->contains($student->curso) || $excusedStudentIds->contains($student->id),
+                );
+                $presentStudentIds = (clone $attendanceQuery)
                     ->whereDate('fecha_hora', $date)
                     ->where('tipo', 'Entrada')
                     ->distinct()
-                    ->count('student_id');
+                    ->pluck('student_id');
+                $present = $eligibleStudents->whereIn('id', $presentStudentIds)->count();
+                $eligibleTotal = $eligibleStudents->count();
 
                 return [
                     'fecha' => $date->format('d/m'),
                     'dia' => $date->locale('es')->isoFormat('ddd'),
-                    'porcentaje' => $studentsTotal === 0 ? 0 : round(($present / $studentsTotal) * 100, 1),
+                    'porcentaje' => $eligibleTotal === 0 ? 0 : round(($present / $eligibleTotal) * 100, 1),
+                    'pasantia' => $overviewStudents->count() - $eligibleTotal,
                 ];
             });
         }
@@ -813,7 +837,7 @@ class DashboardController extends Controller
                 'presentes_hoy' => $presentToday,
                 'ausentes_hoy' => $absentToday,
                 'salidas_hoy' => $departuresToday,
-                'porcentaje_hoy' => $studentsTotal === 0 ? 0 : round(($presentToday / $studentsTotal) * 100, 1),
+                'porcentaje_hoy' => $attendanceEligibleTotal === 0 ? 0 : round(($presentEligibleToday / $attendanceEligibleTotal) * 100, 1),
             ],
             'asistenciaPorCurso' => $attendanceByCourse,
             'tendenciaSemanal' => $weeklyTrend,

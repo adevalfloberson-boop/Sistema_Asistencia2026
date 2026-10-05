@@ -15,10 +15,15 @@ use Illuminate\Mail\PendingMail;
 uses(RefreshDatabase::class);
 
 beforeEach(function (): void {
+    $this->travelTo('2026-09-30 08:00:00');
     $this->school = School::query()->create(['code' => 'NOTIFY', 'name' => 'Centro Notificaciones', 'attendance_cooldown_minutes' => 1, 'attendance_entry_time' => '08:00', 'attendance_exit_time' => '14:00', 'attendance_late_grace_minutes' => 10]);
     $this->school->notificationSetting()->create(['email_enabled' => true, 'notify_entry' => true, 'notify_exit' => true, 'notify_early_departure' => true, 'send_to_father' => true, 'send_to_mother' => true, 'smtp_host' => 'smtp.example.test', 'smtp_port' => 587, 'smtp_security' => 'starttls', 'smtp_username' => 'mailer', 'smtp_password' => 'secret', 'from_address' => 'asistencia@example.test', 'from_name' => 'Asistencia']);
     $this->student = Student::query()->create(['school_id' => $this->school->id, 'matricula' => 'N-001', 'nombre' => 'Jean', 'apellido' => 'Pierre', 'curso' => 'Primero A', 'id_lector' => '501', 'father_email' => 'familia@example.test', 'mother_email' => 'familia@example.test']);
     $this->device = BiometricDevice::query()->create(['school_id' => $this->school->id, 'key' => 'notify-reader', 'name' => 'Entrada', 'mac_address' => '00:17:61:11:18:f4', 'network' => '192.168.20']);
+});
+
+afterEach(function (): void {
+    $this->travelBack();
 });
 
 test('a live attendance sends one message to duplicate parent addresses and records it', function () {

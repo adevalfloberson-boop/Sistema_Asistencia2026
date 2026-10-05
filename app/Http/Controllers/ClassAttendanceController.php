@@ -50,7 +50,7 @@ class ClassAttendanceController extends Controller
             ]);
         }
 
-        $this->createDefaultAbsences($classSession, $teacher);
+        $synchronized = $this->synchronizeAutomaticPresences($classSession, $teacher);
 
         return redirect()
             ->route('dashboard.docente', [
@@ -59,7 +59,26 @@ class ClassAttendanceController extends Controller
                 'report_month' => today()->format('Y-m'),
                 'take_attendance' => 1,
             ])
-            ->with('success', "Verificación iniciada para {$course->name}.");
+            ->with('success', "Verificación iniciada para {$course->name}. {$synchronized} presentes confirmados por el lector.");
+    }
+
+    public function synchronize(Request $request, ClassSession $classSession): RedirectResponse
+    {
+        $teacher = $this->teacher($request);
+        abort_unless($classSession->teacher_id === $teacher->id, 403);
+        abort_if($classSession->status === 'closed', 422, 'La sesión de clase ya está cerrada.');
+
+        $synchronized = $this->synchronizeAutomaticPresences($classSession, $teacher);
+
+        return redirect()
+            ->route('dashboard.docente', [
+                'course' => $classSession->course_id,
+                'date' => $classSession->scheduled_at->toDateString(),
+                'take_attendance' => 1,
+            ])
+            ->with('success', $synchronized > 0
+                ? "Se confirmaron {$synchronized} nuevos presentes desde el lector."
+                : 'La lista ya está sincronizada con los ponches disponibles.');
     }
 
     public function verify(Request $request): RedirectResponse
@@ -202,10 +221,14 @@ class ClassAttendanceController extends Controller
         $teacher = $this->teacher($request);
         abort_unless($classSession->teacher_id === $teacher->id, 403);
 
-        $classSession->update([
-            'status' => 'closed',
-            'ended_at' => now(),
-        ]);
+        DB::transaction(function () use ($classSession, $teacher): void {
+            $this->finalizeMissingAbsences($classSession, $teacher);
+
+            $classSession->update([
+                'status' => 'closed',
+                'ended_at' => now(),
+            ]);
+        });
 
         return redirect()
             ->route('dashboard.docente', [
@@ -241,7 +264,7 @@ class ClassAttendanceController extends Controller
             ->count();
     }
 
-    private function createDefaultAbsences(ClassSession $classSession, User $teacher): void
+    private function synchronizeAutomaticPresences(ClassSession $classSession, User $teacher): int
     {
         $students = Student::query()
             ->where('is_active', true)
@@ -262,25 +285,65 @@ class ClassAttendanceController extends Controller
             ->groupBy('student_id')
             ->map(fn ($records): Attendance => $records->last());
 
-        DB::transaction(function () use ($campusRecords, $classSession, $students, $teacher): void {
+        return DB::transaction(function () use ($campusRecords, $classSession, $students, $teacher): int {
+            $synchronized = 0;
+
             foreach ($students as $student) {
                 $isOnCampus = $campusRecords->get($student->id)?->tipo === 'Entrada';
 
-                ClassAttendanceVerification::query()->firstOrCreate(
+                if (! $isOnCampus) {
+                    continue;
+                }
+
+                $verification = ClassAttendanceVerification::query()->firstOrCreate(
                     [
                         'class_session_id' => $classSession->id,
                         'student_id' => $student->id,
                     ],
                     [
                         'teacher_id' => $teacher->id,
-                        'status' => $isOnCampus
-                            ? ClassAttendanceVerification::StatusCampusAbsentClass
-                            : ClassAttendanceVerification::StatusAbsentCampus,
-                        'was_on_campus' => $isOnCampus,
+                        'status' => ClassAttendanceVerification::StatusPresent,
+                        'was_on_campus' => true,
+                        'note' => 'Presencia confirmada automáticamente por el lector biométrico.',
                         'verified_at' => now(),
                     ],
                 );
+
+                if ($verification->wasRecentlyCreated) {
+                    $synchronized++;
+                }
             }
+
+            return $synchronized;
         });
+    }
+
+    private function finalizeMissingAbsences(ClassSession $classSession, User $teacher): void
+    {
+        $students = Student::query()
+            ->where('is_active', true)
+            ->where(function ($query) use ($classSession): void {
+                $query->where('course_id', $classSession->course_id)
+                    ->orWhere(function ($legacyQuery) use ($classSession): void {
+                        $legacyQuery->whereNull('course_id')->where('curso', $classSession->course->name);
+                    });
+            })
+            ->get();
+
+        foreach ($students as $student) {
+            ClassAttendanceVerification::query()->firstOrCreate(
+                [
+                    'class_session_id' => $classSession->id,
+                    'student_id' => $student->id,
+                ],
+                [
+                    'teacher_id' => $teacher->id,
+                    'status' => ClassAttendanceVerification::StatusAbsentCampus,
+                    'was_on_campus' => false,
+                    'note' => 'Ausencia confirmada al cerrar la lista de la clase.',
+                    'verified_at' => now(),
+                ],
+            );
+        }
     }
 }

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Attendance;
 use App\Models\BiometricDevice;
 use App\Models\EarlyDepartureAuthorization;
+use App\Models\SchoolScheduleException;
 use App\Models\Student;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -125,8 +126,26 @@ class BiometricAttendanceRecorder
             ->each(function (Attendance $attendance) use ($student, &$acceptedIndex): void {
                 $type = $acceptedIndex % 2 === 0 ? 'Entrada' : 'Salida';
                 $schedule = $student->school;
+                $exitTime = SchoolScheduleException::query()
+                    ->where('school_id', $student->school_id)
+                    ->whereDate('date', $attendance->fecha_hora)
+                    ->value('exit_time') ?? $schedule?->attendance_exit_time;
+
+                if ($type === 'Entrada' && $attendance->sync_source !== 'history' && $this->isAtOrAfterExitTime($attendance->fecha_hora, $exitTime)) {
+                    $attendance->update([
+                        'tipo' => 'Ignorado',
+                        'estado' => 'Ignorado',
+                        'is_ignored' => true,
+                        'ignored_reason' => 'entry_at_or_after_exit_time',
+                        'is_late' => false,
+                        'is_early_departure' => false,
+                    ]);
+
+                    return;
+                }
+
                 $isLate = $type === 'Entrada' && $this->isLate($attendance->fecha_hora, $schedule?->attendance_entry_time, $schedule?->attendance_late_grace_minutes);
-                $isEarlyDeparture = $type === 'Salida' && $this->isBeforeExitTime($attendance->fecha_hora, $schedule?->attendance_exit_time);
+                $isEarlyDeparture = $type === 'Salida' && $this->isBeforeExitTime($attendance->fecha_hora, $exitTime);
 
                 if ($isEarlyDeparture && $attendance->sync_source !== 'history') {
                     $authorization = EarlyDepartureAuthorization::query()
@@ -194,6 +213,17 @@ class BiometricAttendanceRecorder
         $limit = Carbon::parse($recordedAt->toDateString().' '.Carbon::parse($exitTime)->format('H:i:s'));
 
         return $recordedAt->lessThan($limit);
+    }
+
+    private function isAtOrAfterExitTime(Carbon $recordedAt, mixed $exitTime): bool
+    {
+        if ($exitTime === null) {
+            return false;
+        }
+
+        $limit = Carbon::parse($recordedAt->toDateString().' '.Carbon::parse($exitTime)->format('H:i:s'));
+
+        return $recordedAt->greaterThanOrEqualTo($limit);
     }
 
     /**

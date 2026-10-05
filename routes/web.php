@@ -129,6 +129,7 @@ Route::middleware('role:superadmin')->prefix('dashboard/superadmin')->group(func
 Route::middleware('role:teacher')->prefix('dashboard/docente')->group(function (): void {
     Route::get('/', TeacherDashboardController::class)->name('dashboard.docente');
     Route::post('/sesiones', [ClassAttendanceController::class, 'start'])->name('teacher.sessions.start');
+    Route::post('/sesiones/{classSession}/sincronizar', [ClassAttendanceController::class, 'synchronize'])->name('teacher.sessions.synchronize');
     Route::post('/verificaciones', [ClassAttendanceController::class, 'verify'])->name('teacher.verifications.store');
     Route::post('/verificaciones/lista', [ClassAttendanceController::class, 'storeRoster'])->name('teacher.verifications.roster');
     Route::post('/sesiones/{classSession}/cerrar', [ClassAttendanceController::class, 'close'])->name('teacher.sessions.close');
