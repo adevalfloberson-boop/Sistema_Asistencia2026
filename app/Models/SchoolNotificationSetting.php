@@ -22,6 +22,12 @@ class SchoolNotificationSetting extends Model
         'smtp_password',
         'from_address',
         'from_name',
+        'developer_branding_enabled',
+        'developer_name',
+        'developer_message',
+        'developer_phone',
+        'developer_email',
+        'developer_website',
     ];
 
     protected $hidden = ['smtp_password'];
@@ -37,6 +43,7 @@ class SchoolNotificationSetting extends Model
             'send_to_mother' => 'boolean',
             'smtp_port' => 'integer',
             'smtp_password' => 'encrypted',
+            'developer_branding_enabled' => 'boolean',
         ];
     }
 

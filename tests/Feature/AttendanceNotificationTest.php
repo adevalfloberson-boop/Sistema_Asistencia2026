@@ -39,6 +39,23 @@ test('a live attendance sends one message to duplicate parent addresses and reco
     expect($result['created'])->toBeTrue()->and(Attendance::query()->count())->toBe(1)->and(AttendanceNotification::query()->where('status', 'Enviado')->count())->toBe(1);
 });
 
+test('an ADMS attendance sends the family notification', function () {
+    $pendingMail = Mockery::mock(PendingMail::class);
+    $pendingMail->shouldReceive('send')->once()->with(Mockery::type(AttendanceRecordedMail::class));
+    $mailer = Mockery::mock(Mailer::class);
+    $mailer->shouldReceive('to')->once()->with('familia@example.test')->andReturn($pendingMail);
+    $factory = Mockery::mock(SchoolMailerFactory::class);
+    $factory->shouldReceive('make')->once()->andReturn($mailer);
+    $this->app->instance(SchoolMailerFactory::class, $factory);
+
+    app(BiometricAttendanceRecorder::class)->record($this->student, $this->device, [
+        'reader_key' => $this->device->key,
+        'event_source' => 'adms',
+    ]);
+
+    expect(AttendanceNotification::query()->where('status', 'Enviado')->count())->toBe(1);
+});
+
 test('mail failure does not prevent attendance and is recorded safely', function () {
     $pendingMail = Mockery::mock(PendingMail::class);
     $pendingMail->shouldReceive('send')->once()->andThrow(new RuntimeException('SMTP connection failed'));
@@ -64,4 +81,33 @@ test('history synchronization does not send family notifications', function () {
     $this->app->instance(SchoolMailerFactory::class, $factory);
     app(BiometricAttendanceRecorder::class)->record($this->student, $this->device, ['reader_key' => $this->device->key, 'event_source' => 'history', 'event_timestamp' => '2026-09-20 08:00:00']);
     expect(Attendance::query()->count())->toBe(1)->and(AttendanceNotification::query()->count())->toBe(0);
+});
+
+test('attendance email renders the optional developer signature', function () {
+    $this->school->notificationSetting->update([
+        'developer_branding_enabled' => true,
+        'developer_name' => 'Master BI',
+        'developer_message' => 'Tecnología para la educación.',
+        'developer_phone' => '809-555-0101',
+        'developer_email' => 'contacto@masterbi.test',
+        'developer_website' => 'https://masterbi.test',
+    ]);
+
+    $attendance = Attendance::query()->create([
+        'school_id' => $this->school->id,
+        'student_id' => $this->student->id,
+        'matricula' => $this->student->matricula,
+        'id_lector' => $this->student->id_lector,
+        'fecha_hora' => now(),
+        'curso' => $this->student->curso,
+        'estado' => 'Entrada',
+        'tipo' => 'Entrada',
+    ]);
+
+    $html = (new AttendanceRecordedMail($attendance))->render();
+
+    expect($html)->toContain('Desarrollado por')
+        ->and($html)->toContain('Master BI')
+        ->and($html)->toContain('Tecnología para la educación.')
+        ->and($html)->toContain('https://masterbi.test');
 });

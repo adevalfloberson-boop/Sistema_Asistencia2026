@@ -51,10 +51,16 @@ test('smtp password is encrypted and never rendered back into the settings page'
         'smtp_host' => 'smtp.example.test', 'smtp_port' => 587, 'smtp_security' => 'starttls',
         'smtp_username' => 'mailer@example.test', 'smtp_password' => 'super-secret-password',
         'from_address' => 'asistencia@example.test', 'from_name' => 'Asistencia Escolar',
+        'developer_branding_enabled' => '1', 'developer_name' => 'Master BI',
+        'developer_message' => 'Tecnología para la educación.', 'developer_phone' => '809-555-0101',
+        'developer_email' => 'contacto@masterbi.test', 'developer_website' => 'https://masterbi.test',
     ])->assertRedirect(route('dashboard.admin.page', 'settings'));
 
     $rawPassword = DB::table('school_notification_settings')->where('school_id', $school->id)->value('smtp_password');
     expect($rawPassword)->not->toBe('super-secret-password')->and($school->notificationSetting->smtp_password)->toBe('super-secret-password');
+    expect($school->notificationSetting->developer_branding_enabled)->toBeTrue()
+        ->and($school->notificationSetting->developer_name)->toBe('Master BI')
+        ->and($school->notificationSetting->developer_website)->toBe('https://masterbi.test');
     $this->withSession($session)->get(route('dashboard.admin.page', 'settings'))->assertOk()->assertDontSee('super-secret-password');
 });
 

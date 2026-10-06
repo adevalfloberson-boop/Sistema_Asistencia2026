@@ -21,4 +21,16 @@ Este es un mensaje informativo generado por el sistema de asistencia.
 
 Atentamente,<br>
 {{ $attendance->school->name }}
+
+@php($branding = $attendance->school->notificationSetting)
+@if ($branding?->developer_branding_enabled && $branding?->developer_name)
+---
+
+<small>
+Desarrollado por **{{ $branding->developer_name }}**@if($branding->developer_message)<br>{{ $branding->developer_message }}@endif
+@if($branding->developer_phone)<br>Teléfono / WhatsApp: {{ $branding->developer_phone }}@endif
+@if($branding->developer_email)<br>Correo: [{{ $branding->developer_email }}](mailto:{{ $branding->developer_email }})@endif
+@if($branding->developer_website)<br>Sitio web: [{{ $branding->developer_website }}]({{ $branding->developer_website }})@endif
+</small>
+@endif
 </x-mail::message>

@@ -98,7 +98,7 @@ class BiometricAttendanceRecorder
             return $this->result($attendance->fresh(), true);
         });
 
-        if ($result['created'] && ! $result['ignored'] && ($event['event_source'] ?? 'live') === 'live') {
+        if ($result['created'] && ! $result['ignored'] && ($event['event_source'] ?? 'live') !== 'history') {
             try {
                 $this->notificationService->sendFor($result['attendance']);
             } catch (Throwable $exception) {

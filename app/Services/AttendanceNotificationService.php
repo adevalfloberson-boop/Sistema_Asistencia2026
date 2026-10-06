@@ -13,7 +13,10 @@ class AttendanceNotificationService
 {
     public function __construct(private readonly SchoolMailerFactory $mailerFactory) {}
 
-    public function sendFor(Attendance $attendance): void
+    /**
+     * @param  array<int, string>|null  $recipientFilter
+     */
+    public function sendFor(Attendance $attendance, ?array $recipientFilter = null): void
     {
         $attendance->loadMissing(['school.notificationSetting', 'student']);
         $setting = $attendance->school?->notificationSetting;
@@ -40,6 +43,12 @@ class AttendanceNotificationService
             $setting->send_to_father ? $attendance->student->father_email : null,
             $setting->send_to_mother ? $attendance->student->mother_email : null,
         ])->filter()->map(fn (string $email): string => Str::lower(trim($email)))->unique()->values();
+
+        if ($recipientFilter !== null) {
+            $allowedRecipients = collect($recipientFilter)
+                ->map(fn (string $email): string => Str::lower(trim($email)));
+            $recipients = $recipients->intersect($allowedRecipients)->values();
+        }
 
         if ($recipients->isEmpty()) {
             $this->record($attendance, null, 'Omitido', 'El estudiante no tiene destinatarios configurados.');
