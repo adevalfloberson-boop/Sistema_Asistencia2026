@@ -4,6 +4,8 @@
     $exitTime = $settingsSchool->attendance_exit_time?->copy() ?? now()->setTime(14, 0);
     $lateAt = $entryTime->copy()->addMinutes($settingsSchool->attendance_late_grace_minutes + 1);
     $inputClass = 'mt-2 w-full rounded-xl border border-stone-200 bg-stone-50 px-3 py-3 text-sm outline-none transition focus:border-teal-500 focus:ring-4 focus:ring-teal-500/10 dark:border-slate-700 dark:bg-slate-950';
+    $deviceAlertRecipients = old('device_alert_recipients', preg_split('/[\s,;]+/', (string) $setting?->device_alert_email, -1, PREG_SPLIT_NO_EMPTY));
+    $deviceAlertRecipients = $deviceAlertRecipients ?: [''];
 @endphp
 
 <section id="settings" class="space-y-5">
@@ -68,6 +70,20 @@
                 <label class="text-xs font-bold text-slate-500">Nombre del remitente<input class="{{ $inputClass }}" name="from_name" required value="{{ old('from_name', $setting?->from_name ?? $settingsSchool->name) }}"></label>
                 <label class="text-xs font-bold text-slate-500">Contraseña<input class="{{ $inputClass }}" type="password" name="smtp_password" autocomplete="new-password" placeholder="{{ $setting?->smtp_password ? 'Guardada · dejar vacío para conservar' : 'Contraseña SMTP' }}"></label>
                 <label class="text-xs font-bold text-slate-500 sm:col-span-2 lg:col-span-3">Mensaje principal de asistencia<textarea class="{{ $inputClass }} min-h-24" name="notification_message" maxlength="1000" placeholder="Se ha registrado la {evento} de {estudiante}.">{{ old('notification_message', $setting?->notification_message) }}</textarea><span class="mt-2 block font-normal leading-relaxed">Variables disponibles: <code>{estudiante}</code>, <code>{evento}</code>, <code>{escuela}</code>, <code>{fecha}</code> y <code>{hora}</code>.</span></label>
+                <fieldset class="space-y-4 rounded-xl border border-amber-200 bg-amber-50/50 p-4 sm:col-span-2 lg:col-span-3 dark:border-amber-900 dark:bg-amber-950/20">
+                    <legend class="px-2 text-[11px] font-black uppercase tracking-[.18em] text-amber-600">Alerta del lector</legend>
+                    <label class="flex items-center justify-between gap-4"><span><strong class="block text-sm text-slate-800 dark:text-slate-100">Avisarme cuando un lector se desconecte</strong><small class="text-slate-500">Envía un solo correo por caída y vuelve a habilitar la alerta cuando el lector se reconecta.</small></span><input class="h-5 w-5 shrink-0 accent-amber-600" type="checkbox" name="device_alerts_enabled" value="1" @checked(old('device_alerts_enabled', $setting?->device_alerts_enabled))></label>
+                    <div data-device-alert-recipients>
+                        <div class="flex items-center justify-between gap-3"><span class="text-xs font-bold text-slate-500">Personas que recibirán la alerta</span><button class="rounded-lg border border-amber-300 px-3 py-2 text-xs font-black text-amber-700 dark:border-amber-800 dark:text-amber-300" type="button" data-add-alert-recipient>+ Añadir correo</button></div>
+                        <div class="mt-3 space-y-2" data-alert-recipient-list>
+                            @foreach ($deviceAlertRecipients as $recipient)
+                                <div class="flex items-center gap-2" data-alert-recipient-row><label class="sr-only">Correo para alerta</label><input class="w-full rounded-xl border border-stone-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 dark:border-slate-700 dark:bg-slate-950" type="email" name="device_alert_recipients[]" value="{{ $recipient }}" placeholder="nombre@gmail.com"><button class="rounded-lg px-3 py-2 text-xs font-black text-rose-600" type="button" data-remove-alert-recipient>Quitar</button></div>
+                            @endforeach
+                        </div>
+                        <template data-alert-recipient-template><div class="flex items-center gap-2" data-alert-recipient-row><label class="sr-only">Correo para alerta</label><input class="w-full rounded-xl border border-stone-200 bg-white px-3 py-3 text-sm outline-none transition focus:border-amber-500 focus:ring-4 focus:ring-amber-500/10 dark:border-slate-700 dark:bg-slate-950" type="email" name="device_alert_recipients[]" placeholder="nombre@gmail.com"><button class="rounded-lg px-3 py-2 text-xs font-black text-rose-600" type="button" data-remove-alert-recipient>Quitar</button></div></template>
+                        <p class="mt-2 text-xs text-slate-500">Cada persona aparece en su propio campo para evitar errores.</p>
+                    </div>
+                </fieldset>
                 <fieldset class="space-y-4 rounded-xl border border-stone-200 p-4 sm:col-span-2 lg:col-span-3 dark:border-slate-700">
                     <legend class="px-2 text-[11px] font-black uppercase tracking-[.18em] text-teal-600">Firma de la empresa desarrolladora</legend>
                     <label class="flex items-center justify-between gap-4 rounded-xl bg-stone-50 p-4 dark:bg-slate-950"><span><strong class="block text-sm text-slate-800 dark:text-slate-100">Mostrar promoción en los correos</strong><small class="text-slate-500">Añade una firma discreta debajo del mensaje institucional.</small></span><input class="h-5 w-5 shrink-0 accent-teal-600" type="checkbox" name="developer_branding_enabled" value="1" @checked(old('developer_branding_enabled', $setting?->developer_branding_enabled))></label>

@@ -11,6 +11,13 @@ class SchoolMailSettingsController extends Controller
 {
     public function update(Request $request, School $school): RedirectResponse
     {
+        $deviceAlertRecipients = $request->input('device_alert_recipients', []);
+        $request->merge([
+            'device_alert_recipients' => is_array($deviceAlertRecipients)
+                ? array_values(array_filter($deviceAlertRecipients, fn (mixed $email): bool => filled($email)))
+                : $deviceAlertRecipients,
+        ]);
+
         $validated = $request->validate([
             'smtp_host' => ['required', 'string', 'max:255'],
             'smtp_port' => ['required', 'integer', 'min:1', 'max:65535'],
@@ -20,6 +27,9 @@ class SchoolMailSettingsController extends Controller
             'from_address' => ['required', 'email', 'max:255'],
             'from_name' => ['required', 'string', 'max:255'],
             'notification_message' => ['nullable', 'string', 'max:1000'],
+            'device_alerts_enabled' => ['nullable', 'boolean'],
+            'device_alert_recipients' => ['nullable', 'required_if:device_alerts_enabled,1', 'array', 'max:10'],
+            'device_alert_recipients.*' => ['required', 'email', 'distinct', 'max:255'],
             'developer_branding_enabled' => ['nullable', 'boolean'],
             'developer_name' => ['nullable', 'string', 'max:255'],
             'developer_message' => ['nullable', 'string', 'max:1000'],
@@ -29,6 +39,10 @@ class SchoolMailSettingsController extends Controller
         ]);
 
         $validated['developer_branding_enabled'] = (bool) ($validated['developer_branding_enabled'] ?? false);
+        $validated['device_alerts_enabled'] = (bool) ($validated['device_alerts_enabled'] ?? false);
+
+        $validated['device_alert_email'] = implode(', ', $validated['device_alert_recipients'] ?? []);
+        unset($validated['device_alert_recipients']);
 
         if (blank($validated['smtp_password'] ?? null)) {
             unset($validated['smtp_password']);

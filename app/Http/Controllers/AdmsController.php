@@ -214,6 +214,7 @@ class AdmsController extends Controller
             'ip_address' => $request->ip(),
             'last_seen_at' => now(),
             'last_connected_at' => $wasConnected ? ($device->last_connected_at ?? now()) : now(),
+            'disconnect_alert_sent_at' => null,
             'last_error' => null,
         ]);
     }

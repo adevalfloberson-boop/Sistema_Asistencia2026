@@ -10,6 +10,8 @@ class SchoolNotificationSetting extends Model
     protected $fillable = [
         'school_id',
         'email_enabled',
+        'device_alerts_enabled',
+        'device_alert_email',
         'notify_entry',
         'notify_exit',
         'notify_early_departure',
@@ -37,6 +39,7 @@ class SchoolNotificationSetting extends Model
     {
         return [
             'email_enabled' => 'boolean',
+            'device_alerts_enabled' => 'boolean',
             'notify_entry' => 'boolean',
             'notify_exit' => 'boolean',
             'notify_early_departure' => 'boolean',

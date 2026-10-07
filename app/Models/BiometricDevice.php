@@ -26,6 +26,8 @@ class BiometricDevice extends Model
         'last_seen_at',
         'last_connected_at',
         'last_disconnected_at',
+        'disconnect_alert_sent_at',
+        'disconnection_count',
         'firmware_version',
         'platform',
         'user_count',
@@ -43,6 +45,8 @@ class BiometricDevice extends Model
             'last_seen_at' => 'datetime',
             'last_connected_at' => 'datetime',
             'last_disconnected_at' => 'datetime',
+            'disconnect_alert_sent_at' => 'datetime',
+            'disconnection_count' => 'integer',
             'capacity' => 'array',
         ];
     }

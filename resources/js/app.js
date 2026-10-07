@@ -421,6 +421,30 @@ document.addEventListener('DOMContentLoaded', () => {
         const closeButton = event.target.closest('[data-close-dialog]');
         const viewButton = event.target.closest('[data-device-view]');
         const copyButton = event.target.closest('[data-copy-value]');
+        const addAlertRecipientButton = event.target.closest('[data-add-alert-recipient]');
+        const removeAlertRecipientButton = event.target.closest('[data-remove-alert-recipient]');
+
+        if (addAlertRecipientButton) {
+            const container = addAlertRecipientButton.closest('[data-device-alert-recipients]');
+            const template = container?.querySelector('[data-alert-recipient-template]');
+            const list = container?.querySelector('[data-alert-recipient-list]');
+
+            if (template && list && list.children.length < 10) {
+                list.append(template.content.cloneNode(true));
+                list.lastElementChild?.querySelector('input')?.focus();
+            }
+        }
+
+        if (removeAlertRecipientButton) {
+            const list = removeAlertRecipientButton.closest('[data-alert-recipient-list]');
+            const rows = list?.querySelectorAll('[data-alert-recipient-row]');
+
+            if (rows?.length === 1) {
+                rows[0].querySelector('input').value = '';
+            } else {
+                removeAlertRecipientButton.closest('[data-alert-recipient-row]')?.remove();
+            }
+        }
 
         if (openButton) {
             document.getElementById(openButton.dataset.openDialog)?.showModal();

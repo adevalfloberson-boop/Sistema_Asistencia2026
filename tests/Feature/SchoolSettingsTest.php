@@ -52,6 +52,7 @@ test('smtp password is encrypted and never rendered back into the settings page'
         'smtp_username' => 'mailer@example.test', 'smtp_password' => 'super-secret-password',
         'from_address' => 'asistencia@example.test', 'from_name' => 'Asistencia Escolar',
         'notification_message' => '{estudiante} llegó a las {hora}.',
+        'device_alerts_enabled' => '1', 'device_alert_recipients' => ['superflober516@gmail.com', 'honattanreyes58@gmail.com'],
         'developer_branding_enabled' => '1', 'developer_name' => 'Master BI',
         'developer_message' => 'Tecnología para la educación.', 'developer_phone' => '809-555-0101',
         'developer_email' => 'contacto@masterbi.test', 'developer_website' => 'https://masterbi.test',
@@ -60,6 +61,8 @@ test('smtp password is encrypted and never rendered back into the settings page'
     $rawPassword = DB::table('school_notification_settings')->where('school_id', $school->id)->value('smtp_password');
     expect($rawPassword)->not->toBe('super-secret-password')->and($school->notificationSetting->smtp_password)->toBe('super-secret-password');
     expect($school->notificationSetting->developer_branding_enabled)->toBeTrue()
+        ->and($school->notificationSetting->device_alerts_enabled)->toBeTrue()
+        ->and($school->notificationSetting->device_alert_email)->toBe('superflober516@gmail.com, honattanreyes58@gmail.com')
         ->and($school->notificationSetting->notification_message)->toBe('{estudiante} llegó a las {hora}.')
         ->and($school->notificationSetting->developer_name)->toBe('Master BI')
         ->and($school->notificationSetting->developer_website)->toBe('https://masterbi.test');

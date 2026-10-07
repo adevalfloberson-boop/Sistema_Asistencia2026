@@ -75,6 +75,7 @@ class BiometricAgentController extends Controller
 
         if ($isConnected) {
             $device->last_seen_at = now();
+            $device->disconnect_alert_sent_at = null;
             $device->last_connected_at = $wasConnected
                 ? ($device->last_connected_at ?? now())
                 : now();
