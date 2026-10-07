@@ -51,6 +51,7 @@ test('smtp password is encrypted and never rendered back into the settings page'
         'smtp_host' => 'smtp.example.test', 'smtp_port' => 587, 'smtp_security' => 'starttls',
         'smtp_username' => 'mailer@example.test', 'smtp_password' => 'super-secret-password',
         'from_address' => 'asistencia@example.test', 'from_name' => 'Asistencia Escolar',
+        'notification_message' => '{estudiante} llegó a las {hora}.',
         'developer_branding_enabled' => '1', 'developer_name' => 'Master BI',
         'developer_message' => 'Tecnología para la educación.', 'developer_phone' => '809-555-0101',
         'developer_email' => 'contacto@masterbi.test', 'developer_website' => 'https://masterbi.test',
@@ -59,9 +60,27 @@ test('smtp password is encrypted and never rendered back into the settings page'
     $rawPassword = DB::table('school_notification_settings')->where('school_id', $school->id)->value('smtp_password');
     expect($rawPassword)->not->toBe('super-secret-password')->and($school->notificationSetting->smtp_password)->toBe('super-secret-password');
     expect($school->notificationSetting->developer_branding_enabled)->toBeTrue()
+        ->and($school->notificationSetting->notification_message)->toBe('{estudiante} llegó a las {hora}.')
         ->and($school->notificationSetting->developer_name)->toBe('Master BI')
         ->and($school->notificationSetting->developer_website)->toBe('https://masterbi.test');
     $this->withSession($session)->get(route('dashboard.admin.page', 'settings'))->assertOk()->assertDontSee('super-secret-password');
+});
+
+test('administrator can preview the real attendance notification', function () {
+    $school = School::query()->create(['code' => 'PREVIEW', 'name' => 'Centro Vista Previa']);
+    $school->notificationSetting()->create([
+        'notification_message' => '{estudiante} registró {evento} a las {hora}.',
+        'developer_branding_enabled' => true,
+        'developer_name' => 'Master BI',
+        'developer_message' => 'Tecnología para la educación.',
+    ]);
+    $admin = User::factory()->create(['role' => 'admin', 'school_id' => $school->id]);
+
+    $this->withSession(schoolAdminSession($admin))
+        ->get(route('schools.mail.preview', $school))
+        ->assertOk()
+        ->assertSee('Estudiante de Prueba registró entrada')
+        ->assertSee('Tecnología para la educación.');
 });
 
 test('administrator cannot update configuration belonging to another school', function () {

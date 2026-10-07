@@ -19,6 +19,7 @@ class SchoolMailSettingsController extends Controller
             'smtp_password' => ['nullable', 'string', 'max:2048'],
             'from_address' => ['required', 'email', 'max:255'],
             'from_name' => ['required', 'string', 'max:255'],
+            'notification_message' => ['nullable', 'string', 'max:1000'],
             'developer_branding_enabled' => ['nullable', 'boolean'],
             'developer_name' => ['nullable', 'string', 'max:255'],
             'developer_message' => ['nullable', 'string', 'max:1000'],

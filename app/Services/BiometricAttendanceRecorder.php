@@ -35,7 +35,7 @@ class BiometricAttendanceRecorder
     {
         $result = DB::transaction(function () use ($student, $device, $event): array {
             $eventKey = $event['event_key'] ?? null;
-            $recordedAt = ($event['event_source'] ?? 'live') === 'history' && isset($event['event_timestamp'])
+            $recordedAt = in_array(($event['event_source'] ?? 'live'), ['history', 'adms'], true) && isset($event['event_timestamp'])
                 ? Carbon::parse($event['event_timestamp'])
                 : now();
 

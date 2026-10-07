@@ -85,6 +85,7 @@ test('history synchronization does not send family notifications', function () {
 
 test('attendance email renders the optional developer signature', function () {
     $this->school->notificationSetting->update([
+        'notification_message' => '{estudiante} registró {evento} en {escuela} a las {hora}.',
         'developer_branding_enabled' => true,
         'developer_name' => 'Master BI',
         'developer_message' => 'Tecnología para la educación.',
@@ -109,5 +110,6 @@ test('attendance email renders the optional developer signature', function () {
     expect($html)->toContain('Desarrollado por')
         ->and($html)->toContain('Master BI')
         ->and($html)->toContain('Tecnología para la educación.')
+        ->and($html)->toContain('Jean Pierre registró entrada en Centro Notificaciones a las 08:00.')
         ->and($html)->toContain('https://masterbi.test');
 });

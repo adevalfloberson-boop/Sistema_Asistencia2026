@@ -22,6 +22,7 @@ class SchoolNotificationSetting extends Model
         'smtp_password',
         'from_address',
         'from_name',
+        'notification_message',
         'developer_branding_enabled',
         'developer_name',
         'developer_message',

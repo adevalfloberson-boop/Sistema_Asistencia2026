@@ -38,7 +38,10 @@ class AttendanceRecordedMail extends Mailable
     {
         return new Content(
             markdown: 'mail.attendance.recorded',
-            with: ['eventLabel' => $this->eventLabel()],
+            with: [
+                'eventLabel' => $this->eventLabel(),
+                'notificationMessage' => $this->notificationMessage(),
+            ],
         );
     }
 
@@ -59,5 +62,20 @@ class AttendanceRecordedMail extends Mailable
         }
 
         return $this->attendance->tipo;
+    }
+
+    public function notificationMessage(): string
+    {
+        $studentName = trim(($this->attendance->student?->nombre ?? '').' '.($this->attendance->student?->apellido ?? ''));
+        $message = $this->attendance->school->notificationSetting?->notification_message
+            ?: 'Se ha registrado la {evento} de {estudiante}.';
+
+        return strtr($message, [
+            '{evento}' => mb_strtolower($this->eventLabel()),
+            '{estudiante}' => $studentName,
+            '{escuela}' => $this->attendance->school->name,
+            '{fecha}' => $this->attendance->fecha_hora->format('d/m/Y'),
+            '{hora}' => $this->attendance->fecha_hora->format('H:i'),
+        ]);
     }
 }

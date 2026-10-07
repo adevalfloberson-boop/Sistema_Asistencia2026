@@ -94,6 +94,7 @@ test('adms attendance creates one deduplicated attendance using existing rules',
     expect(Attendance::query()->count())->toBe(1)
         ->and(AdmsEvent::query()->count())->toBe(1)
         ->and(Attendance::query()->first()->sync_source)->toBe('adms')
+        ->and(Attendance::query()->first()->fecha_hora->format('Y-m-d H:i:s'))->toBe('2026-08-29 07:30:00')
         ->and(Attendance::query()->first()->biometric_device_id)->toBe($device->id);
 });
 

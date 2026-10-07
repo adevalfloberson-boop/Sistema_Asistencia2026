@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Mail\AttendanceRecordedMail;
 use App\Models\Attendance;
 use App\Models\School;
+use App\Models\Student;
 use App\Services\SchoolMailerFactory;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -24,10 +25,15 @@ class SchoolMailTestController extends Controller
 
         $attendance = new Attendance([
             'school_id' => $school->id,
-            'tipo' => 'Prueba',
+            'tipo' => 'Entrada',
             'fecha_hora' => now(),
         ]);
-        $attendance->setRelation('school', $school);
+        $student = new Student([
+            'nombre' => 'Estudiante',
+            'apellido' => 'de Prueba',
+        ]);
+        $attendance->setRelation('school', $school->load('notificationSetting'));
+        $attendance->setRelation('student', $student);
 
         try {
             $mailerFactory->make($setting)

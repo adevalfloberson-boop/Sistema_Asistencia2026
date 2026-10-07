@@ -14,6 +14,7 @@ use App\Http\Controllers\EarlyDepartureLinkController;
 use App\Http\Controllers\InternshipScheduleController;
 use App\Http\Controllers\PublicDashboardController;
 use App\Http\Controllers\PublicEarlyDepartureController;
+use App\Http\Controllers\SchoolMailPreviewController;
 use App\Http\Controllers\SchoolMailSettingsController;
 use App\Http\Controllers\SchoolMailTestController;
 use App\Http\Controllers\SchoolNotificationSettingsController;
@@ -95,6 +96,7 @@ Route::middleware(['role:superadmin,admin'])->prefix('dashboard/admin')->group(f
         Route::put('/escuelas/{school}/notificaciones', [SchoolNotificationSettingsController::class, 'update'])->name('schools.notifications.update');
         Route::put('/escuelas/{school}/correo', [SchoolMailSettingsController::class, 'update'])->name('schools.mail.update');
         Route::post('/escuelas/{school}/correo/prueba', SchoolMailTestController::class)->middleware('throttle:3,1')->name('schools.mail.test');
+        Route::get('/escuelas/{school}/correo/vista-previa', SchoolMailPreviewController::class)->name('schools.mail.preview');
         Route::post('/escuelas/{school}/enlace-publico', [PublicDashboardController::class, 'generate'])->name('schools.public-dashboard.generate');
         Route::delete('/escuelas/{school}/enlace-publico', [PublicDashboardController::class, 'revoke'])->name('schools.public-dashboard.revoke');
         Route::post('/escuelas/{school}/enlace-salidas', [EarlyDepartureLinkController::class, 'generate'])->name('schools.early-departures.generate');
