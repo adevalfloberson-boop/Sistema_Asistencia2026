@@ -6,7 +6,9 @@ use App\Models\Course;
 use App\Models\Student;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
+use Illuminate\Validation\ValidationException;
 
 class StudentController extends Controller
 {
@@ -16,7 +18,10 @@ class StudentController extends Controller
         $validated = $this->validated($request);
         $course = Course::query()->findOrFail($validated['course_id']);
 
-        Student::query()->create($this->studentAttributes($validated, $course));
+        $attributes = $this->studentAttributes($validated, $course);
+        $attributes['photo_path'] = $this->storePhoto($request, (int) $validated['school_id']);
+
+        Student::query()->create($attributes);
 
         return to_route('dashboard.admin.page', 'students')
             ->with('success', 'Estudiante registrado y vinculado al lector correctamente.');
@@ -27,7 +32,21 @@ class StudentController extends Controller
         $this->applyAdministratorSchool($request);
         $validated = $this->validated($request, $student);
         $course = Course::query()->findOrFail($validated['course_id']);
-        $student->update($this->studentAttributes($validated, $course));
+        $attributes = $this->studentAttributes($validated, $course);
+        $newPhotoPath = $request->hasFile('photo')
+            ? $this->storePhoto($request, (int) $validated['school_id'])
+            : null;
+        $previousPhotoPath = $student->photo_path;
+
+        if ($newPhotoPath !== null) {
+            $attributes['photo_path'] = $newPhotoPath;
+        }
+
+        $student->update($attributes);
+
+        if ($newPhotoPath !== null && $previousPhotoPath !== null) {
+            Storage::disk('public')->delete($previousPhotoPath);
+        }
 
         return to_route('dashboard.admin.page', 'students')
             ->with('success', 'Datos del estudiante actualizados.');
@@ -69,6 +88,7 @@ class StudentController extends Controller
                 )->ignore($student),
             ],
             'id_lector' => ['required', 'string', 'max:255', Rule::unique('students')->ignore($student)],
+            'photo' => ['nullable', 'image', 'mimes:jpg,jpeg,png,webp', 'max:2048'],
         ]);
     }
 
@@ -92,5 +112,22 @@ class StudentController extends Controller
         if ($request->session()->get('user.role') === 'admin') {
             $request->merge(['school_id' => $request->session()->get('user.school_id')]);
         }
+    }
+
+    private function storePhoto(Request $request, int $schoolId): ?string
+    {
+        if (! $request->hasFile('photo')) {
+            return null;
+        }
+
+        $path = $request->file('photo')->store("students/photos/{$schoolId}", 'public');
+
+        if ($path === false) {
+            throw ValidationException::withMessages([
+                'photo' => 'No se pudo guardar la fotografía. Inténtalo nuevamente.',
+            ]);
+        }
+
+        return $path;
     }
 }

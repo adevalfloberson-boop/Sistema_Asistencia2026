@@ -68,7 +68,7 @@ class PublicDashboardController extends Controller
             ->orderBy('curso')
             ->orderBy('nombre')
             ->orderBy('apellido')
-            ->get(['id', 'nombre', 'apellido', 'matricula', 'curso', 'sexo']);
+            ->get(['id', 'nombre', 'apellido', 'matricula', 'curso', 'sexo', 'photo_path']);
         $attendances = Attendance::query()
             ->where('school_id', $school->id)
             ->where('is_ignored', false)
@@ -112,13 +112,14 @@ class PublicDashboardController extends Controller
                 ];
             });
 
-        $records = (clone $attendances)->with('student:id,nombre,apellido')->latest('fecha_hora')->get()
+        $records = (clone $attendances)->with('student:id,nombre,apellido,photo_path')->latest('fecha_hora')->get()
             ->map(fn (Attendance $attendance): array => [
                 'id' => $attendance->id,
                 'name' => $attendance->student
                     ? "{$attendance->student->nombre} {$attendance->student->apellido}"
                     : "ID lector {$attendance->id_lector}",
                 'course' => $attendance->curso ?: 'Sin curso',
+                'photo_url' => $attendance->student?->photoUrl(),
                 'time' => $attendance->fecha_hora->format('H:i:s'),
                 'type' => $attendance->tipo,
                 'status' => $attendance->is_late ? 'Tardanza' : ($attendance->tipo === 'Entrada' ? 'A tiempo' : 'Salida'),
@@ -156,6 +157,7 @@ class PublicDashboardController extends Controller
             'registration' => $student->matricula,
             'course' => $student->curso ?: 'Sin curso',
             'sex' => $student->sexo ?: 'Sin especificar',
+            'photo_url' => $student->photoUrl(),
         ])->values();
     }
 }

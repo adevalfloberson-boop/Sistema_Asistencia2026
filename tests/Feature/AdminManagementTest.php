@@ -2,8 +2,11 @@
 
 use App\Models\Course;
 use App\Models\School;
+use App\Models\Student;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\UploadedFile;
+use Illuminate\Support\Facades\Storage;
 
 uses(RefreshDatabase::class);
 
@@ -156,4 +159,54 @@ test('parent emails are optional and validated when provided', function () {
         'id_lector' => '910',
         'father_email' => 'correo-invalido',
     ])->assertSessionHasErrors('father_email');
+});
+
+test('administrator can add and replace a student profile photo', function () {
+    Storage::fake('public');
+    $course = Course::factory()->create(['school_id' => $this->school->id]);
+
+    $this->withSession($this->session)->post(route('students.store'), [
+        'school_id' => $this->school->id,
+        'course_id' => $course->id,
+        'matricula' => 'PHOTO-001',
+        'nombre' => 'Ana',
+        'apellido' => 'Pérez',
+        'id_lector' => 'PHOTO-READER-001',
+        'photo' => UploadedFile::fake()->image('ana.jpg', 400, 400),
+    ])->assertSessionHasNoErrors();
+
+    $student = Student::query()->where('matricula', 'PHOTO-001')->firstOrFail();
+    $originalPhotoPath = $student->photo_path;
+    expect($originalPhotoPath)->not->toBeNull();
+    Storage::disk('public')->assertExists($originalPhotoPath);
+
+    $this->withSession($this->session)->put(route('students.update', $student), [
+        'school_id' => $this->school->id,
+        'course_id' => $course->id,
+        'matricula' => $student->matricula,
+        'nombre' => $student->nombre,
+        'apellido' => $student->apellido,
+        'id_lector' => $student->id_lector,
+        'photo' => UploadedFile::fake()->image('ana-nueva.png', 500, 500),
+    ])->assertSessionHasNoErrors();
+
+    $replacementPhotoPath = $student->fresh()->photo_path;
+    expect($replacementPhotoPath)->not->toBe($originalPhotoPath);
+    Storage::disk('public')->assertMissing($originalPhotoPath);
+    Storage::disk('public')->assertExists($replacementPhotoPath);
+});
+
+test('student profile photo must be a supported image under two megabytes', function () {
+    Storage::fake('public');
+    $course = Course::factory()->create(['school_id' => $this->school->id]);
+
+    $this->withSession($this->session)->post(route('students.store'), [
+        'school_id' => $this->school->id,
+        'course_id' => $course->id,
+        'matricula' => 'PHOTO-INVALID',
+        'nombre' => 'Luis',
+        'apellido' => 'Díaz',
+        'id_lector' => 'PHOTO-READER-002',
+        'photo' => UploadedFile::fake()->create('archivo.pdf', 100, 'application/pdf'),
+    ])->assertSessionHasErrors('photo');
 });

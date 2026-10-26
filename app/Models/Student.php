@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Storage;
 
 class Student extends Model
 {
@@ -22,6 +23,7 @@ class Student extends Model
         'seccion',
         'curso',
         'id_lector',
+        'photo_path',
         'face_photo_path',
         'face_sync_status',
         'face_consent_at',
@@ -75,5 +77,10 @@ class Student extends Model
     public function attendanceExceptions(): HasMany
     {
         return $this->hasMany(StudentAttendanceException::class);
+    }
+
+    public function photoUrl(): ?string
+    {
+        return $this->photo_path === null ? null : Storage::disk('public')->url($this->photo_path);
     }
 }

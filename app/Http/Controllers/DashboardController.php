@@ -145,6 +145,7 @@ class DashboardController extends Controller
                 default => 'El ponche ya estaba sincronizado.',
             },
             'student' => "{$student->nombre} {$student->apellido}",
+            'student_photo_url' => $student->photoUrl(),
             'matricula' => $student->matricula,
             'curso' => $student->curso,
             'tipo' => $attendance->tipo,
@@ -377,6 +378,7 @@ class DashboardController extends Controller
                         'nombre' => "{$student->nombre} {$student->apellido}",
                         'matricula' => $student->matricula,
                         'curso' => $student->curso,
+                        'photo_url' => $student->photoUrl(),
                         'status' => $status,
                         'hora' => $entry?->fecha_hora?->format('H:i'),
                     ];
@@ -669,6 +671,7 @@ class DashboardController extends Controller
                             : "{$attendance->student->nombre} {$attendance->student->apellido}",
                         'matricula' => $attendance->matricula,
                         'curso' => $attendance->curso,
+                        'photo_url' => $attendance->student?->photoUrl(),
                         'hora' => Carbon::parse($attendance->fecha_hora)->format('H:i:s'),
                         'tipo' => $attendance->tipo,
                         'id' => $attendance->id,

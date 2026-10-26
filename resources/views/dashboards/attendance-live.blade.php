@@ -7,6 +7,21 @@
         @endforeach
     </section>
 
+    @if ($ultimosRegistros->isNotEmpty())
+        @php($latestRecord = $ultimosRegistros->first())
+        <article class="flex flex-col gap-5 rounded-2xl border border-teal-200 bg-gradient-to-r from-teal-50 to-white p-5 shadow-sm sm:flex-row sm:items-center sm:justify-between dark:border-teal-900 dark:from-teal-950/40 dark:to-slate-900">
+            <div class="flex items-center gap-4">
+                @if ($latestRecord['photo_url'])
+                    <img class="h-20 w-20 shrink-0 rounded-2xl object-cover ring-4 ring-white shadow-md dark:ring-slate-800" src="{{ $latestRecord['photo_url'] }}" alt="Foto de {{ $latestRecord['nombre'] }}">
+                @else
+                    <span class="flex h-20 w-20 shrink-0 items-center justify-center rounded-2xl bg-teal-100 text-xl font-black text-teal-700 dark:bg-teal-400/10 dark:text-teal-300">{{ collect(explode(' ', $latestRecord['nombre']))->map(fn ($part) => substr($part, 0, 1))->take(2)->join('') }}</span>
+                @endif
+                <div><p class="text-[11px] font-black uppercase tracking-[.18em] text-teal-600 dark:text-teal-300">Último pase registrado</p><h2 class="mt-1 text-2xl font-black">{{ $latestRecord['nombre'] }}</h2><p class="mt-1 text-sm font-semibold text-slate-500">{{ $latestRecord['matricula'] }} · {{ $latestRecord['curso'] }}</p></div>
+            </div>
+            <div class="text-left sm:text-right"><p class="font-mono text-3xl font-black text-teal-600 dark:text-teal-300">{{ $latestRecord['hora'] }}</p><span class="mt-2 inline-flex rounded-full px-3 py-1 text-xs font-black {{ $latestRecord['is_late'] ? 'bg-amber-100 text-amber-700' : ($latestRecord['tipo'] === 'Entrada' ? 'bg-emerald-100 text-emerald-700' : 'bg-sky-100 text-sky-700') }}">{{ $latestRecord['is_late'] ? 'Tardanza' : $latestRecord['tipo'] }}</span></div>
+        </article>
+    @endif
+
     <article class="rounded-2xl border border-stone-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <form class="grid gap-4 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end" method="GET" action="{{ route($dashboardPageRoute, 'attendance') }}">
             @if ($selectedSchoolId && ($usuario['role'] ?? null) === 'superadmin')<input type="hidden" name="school_id" value="{{ $selectedSchoolId }}">@endif
@@ -31,7 +46,7 @@
             @forelse ($attendanceRoster as $student)
                 @php($statusStyle = match ($student['status']) { 'late' => ['Tardanza', 'bg-amber-50 text-amber-700 ring-amber-200 dark:bg-amber-400/10 dark:text-amber-300 dark:ring-amber-900'], 'absent' => ['Ausente', 'bg-rose-50 text-rose-700 ring-rose-200 dark:bg-rose-400/10 dark:text-rose-300 dark:ring-rose-900'], default => ['Presente', 'bg-emerald-50 text-emerald-700 ring-emerald-200 dark:bg-emerald-400/10 dark:text-emerald-300 dark:ring-emerald-900'] })
                 <div class="flex items-center justify-between gap-3 rounded-xl border border-stone-100 p-4 dark:border-slate-800">
-                    <div class="min-w-0"><p class="truncate text-sm font-black">{{ $student['nombre'] }}</p><p class="mt-1 truncate text-xs text-slate-500">{{ $student['curso'] }} · {{ $student['matricula'] }}</p></div>
+                    <div class="flex min-w-0 items-center gap-3">@if ($student['photo_url'])<img class="h-12 w-12 shrink-0 rounded-xl object-cover" src="{{ $student['photo_url'] }}" alt="Foto de {{ $student['nombre'] }}">@else<span class="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-stone-100 text-xs font-black text-slate-500 dark:bg-slate-800">{{ collect(explode(' ', $student['nombre']))->map(fn ($part) => substr($part, 0, 1))->take(2)->join('') }}</span>@endif<div class="min-w-0"><p class="truncate text-sm font-black">{{ $student['nombre'] }}</p><p class="mt-1 truncate text-xs text-slate-500">{{ $student['curso'] }} · {{ $student['matricula'] }}</p></div></div>
                     <div class="text-right"><span class="inline-flex rounded-full px-2.5 py-1 text-[10px] font-black ring-1 {{ $statusStyle[1] }}">{{ $statusStyle[0] }}</span>@if ($student['hora'])<p class="mt-1 font-mono text-[11px] text-slate-400">{{ $student['hora'] }}</p>@endif</div>
                 </div>
             @empty
